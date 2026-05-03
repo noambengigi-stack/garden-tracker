@@ -1,0 +1,2223 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2d6a4f">
+<title>מעקב גינון</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Rubik',sans-serif;background:#f5f0e6;direction:rtl}::-webkit-scrollbar{display:none}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+
+// ─── Supabase ───
+const SUPABASE_URL = "https://qsylkgwekxjftdycenwr.supabase.co";
+const SUPABASE_KEY = "sb_publishable_PsXMWx7QRpTkxzb59KGEGw_lKFamShd";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const ROW_ID = "main";
+const CACHE_KEY = "go-v11";
+const MY_SID = Math.random().toString(36).slice(2) + "-" + Date.now();
+
+function stripSid(d){ if(!d||typeof d!=="object")return d; const {_sid,...rest}=d; return rest; }
+
+async function load(){
+  try {
+    const { data, error } = await sb.from("app_data").select("data").eq("id", ROW_ID).maybeSingle();
+    if (error) throw error;
+    if (data && data.data) {
+      const clean = stripSid(data.data);
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(clean)); } catch(_) {}
+      return clean;
+    }
+    return null;
+  } catch (e) {
+    try { const r = localStorage.getItem(CACHE_KEY); return r ? JSON.parse(r) : null; } catch(_) { return null; }
+  }
+}
+async function save(v){
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(v)); } catch(_) {}
+  try {
+    const payload = { ...v, _sid: MY_SID };
+    const { error } = await sb.from("app_data").upsert({ id: ROW_ID, data: payload, updated_at: new Date().toISOString() });
+    if (error) throw error;
+    return true;
+  } catch (e) { return false; }
+}
+
+const uid=()=>Math.random().toString(36).slice(2,8);
+const DAYS=["א'","ב'","ג'","ד'","ה'","ו'","ש'"];
+const MONTHS=["ינו'","פבר'","מרץ","אפר'","מאי","יוני","יולי","אוג'","ספט'","אוק'","נוב'","דצמ'"];
+const DAYNAMES=["ראשון","שני","שלישי","רביעי","חמישי","שישי","שבת"];
+const PW="1234";
+const TRIP_PRESETS=["סופר לנג","דרך המשי"];
+
+const iso=d=>{const x=new Date(d);return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");};
+const fmtD=d=>{const x=new Date(d);return x.getDate()+"."+(x.getMonth()+1);};
+const fmtHeb=d=>{const x=new Date(d);return x.getDate()+" ב"+MONTHS[x.getMonth()]+" "+x.getFullYear();};
+const fmtFull=d=>{const x=new Date(d);return x.getDate()+"."+(x.getMonth()+1)+"."+x.getFullYear();};
+function getWeek(b){const d=new Date(b),dy=d.getDay(),s=new Date(d);s.setDate(d.getDate()-dy);return Array.from({length:7},(_,i)=>{const x=new Date(s);x.setDate(s.getDate()+i);return x;});}
+
+// ─── Hebrew date + Israeli holidays ───
+const HEB_MONTHS_NAMES={"Nisan":"ניסן","Iyyar":"אייר","Sivan":"סיון","Tammuz":"תמוז","Av":"אב","Elul":"אלול","Tishrei":"תשרי","Cheshvan":"חשון","Kislev":"כסלו","Tevet":"טבת","Shevat":"שבט","Adar":"אדר","Adar I":"אדר א'","Adar II":"אדר ב'"};
+const HEB_NUM=["","א","ב","ג","ד","ה","ו","ז","ח","ט","י","יא","יב","יג","יד","טו","טז","יז","יח","יט","כ","כא","כב","כג","כד","כה","כו","כז","כח","כט","ל"];
+function getHebrewDate(d){
+  try{
+    const fmt=new Intl.DateTimeFormat("he-u-ca-hebrew",{day:"numeric",month:"long"});
+    const parts=fmt.formatToParts(d);
+    let day="",month="";
+    parts.forEach(p=>{if(p.type==="day")day=p.value;if(p.type==="month")month=p.value;});
+    return {day,month,full:day+" "+month};
+  }catch(e){return null;}
+}
+// Israeli holidays - hardcoded for 2024-2027 (most common years)
+const HOLIDAYS={
+  // 2025 (תשפ"ה / תשפ"ו)
+  "2025-01-13":"ט״ו בשבט","2025-03-13":"פורים","2025-03-14":"שושן פורים","2025-04-12":"פסח","2025-04-13":"פסח א׳","2025-04-18":"שביעי של פסח","2025-04-19":"מימונה","2025-04-30":"יום הזיכרון","2025-05-01":"יום העצמאות","2025-05-16":"ל״ג בעומר","2025-06-01":"שבועות","2025-06-02":"שבועות","2025-08-03":"תשעה באב","2025-09-22":"ערב ראש השנה","2025-09-23":"ראש השנה","2025-09-24":"ראש השנה ב׳","2025-10-01":"ערב יום כיפור","2025-10-02":"יום כיפור","2025-10-06":"ערב סוכות","2025-10-07":"סוכות","2025-10-13":"הושענא רבה","2025-10-14":"שמחת תורה","2025-12-14":"חנוכה","2025-12-15":"חנוכה","2025-12-16":"חנוכה","2025-12-17":"חנוכה","2025-12-18":"חנוכה","2025-12-19":"חנוכה","2025-12-20":"חנוכה","2025-12-21":"חנוכה",
+  // 2026 (תשפ"ו / תשפ"ז)
+  "2026-02-02":"ט״ו בשבט","2026-03-03":"פורים","2026-03-04":"שושן פורים","2026-04-01":"ערב פסח","2026-04-02":"פסח א׳","2026-04-08":"שביעי של פסח","2026-04-09":"מימונה","2026-04-21":"יום הזיכרון","2026-04-22":"יום העצמאות","2026-05-05":"ל״ג בעומר","2026-05-22":"שבועות","2026-05-23":"שבועות","2026-07-23":"תשעה באב","2026-09-11":"ערב ראש השנה","2026-09-12":"ראש השנה","2026-09-13":"ראש השנה ב׳","2026-09-20":"ערב יום כיפור","2026-09-21":"יום כיפור","2026-09-25":"ערב סוכות","2026-09-26":"סוכות","2026-10-02":"הושענא רבה","2026-10-03":"שמחת תורה","2026-12-04":"חנוכה","2026-12-05":"חנוכה","2026-12-06":"חנוכה","2026-12-07":"חנוכה","2026-12-08":"חנוכה","2026-12-09":"חנוכה","2026-12-10":"חנוכה","2026-12-11":"חנוכה",
+  // 2027 (תשפ"ז / תשפ"ח)
+  "2027-01-23":"ט״ו בשבט","2027-03-23":"פורים","2027-03-24":"שושן פורים","2027-04-21":"ערב פסח","2027-04-22":"פסח א׳","2027-04-28":"שביעי של פסח","2027-04-29":"מימונה","2027-05-11":"יום הזיכרון","2027-05-12":"יום העצמאות","2027-05-25":"ל״ג בעומר","2027-06-11":"שבועות","2027-06-12":"שבועות","2027-08-12":"תשעה באב","2027-10-01":"ערב ראש השנה","2027-10-02":"ראש השנה","2027-10-03":"ראש השנה ב׳","2027-10-10":"ערב יום כיפור","2027-10-11":"יום כיפור","2027-10-15":"ערב סוכות","2027-10-16":"סוכות","2027-10-22":"הושענא רבה","2027-10-23":"שמחת תורה","2027-12-24":"חנוכה","2027-12-25":"חנוכה","2027-12-26":"חנוכה","2027-12-27":"חנוכה","2027-12-28":"חנוכה","2027-12-29":"חנוכה","2027-12-30":"חנוכה","2027-12-31":"חנוכה"
+};
+const getHoliday=(d)=>HOLIDAYS[iso(d)]||"";
+
+const C={bg:"#f5f0e6",hdr:"#2d6a4f",hdrL:"#40916c",card:"#fffdf5",cardA:"#f9f4e8",bdr:"#e0d8c4",grn:"#2d6a4f",grnL:"#b7e4c7",grnP:"#d8f3dc",org:"#e09f3e",orgB:"#fff3cd",red:"#bc4749",blu:"#0077b6",bluB:"#d4eaf7",purp:"#7209b7",purpB:"#e5d4f2",txt:"#2d3a2e",txtM:"#5a6b5d",txtL:"#8a9a8d",wht:"#fff"};
+
+const EMPTY={workers:[],maintenanceSites:[],devSites:[],weekAssign:{},weekNotes:{},attendance:{},dailyTasks:{},receipts:[],expenses:[],photos:{},trips:{},nextVisitNotes:{},meetings:[],billingExtras:[],projectOrders:{},inventory:[],log:[]};
+
+const INIT={
+  workers:[{id:"w1",name:"Agith"},{id:"w2",name:"Anil"},{id:"w3",name:"Cintaka"},{id:"w4",name:"Maari"}],
+  maintenanceSites:[{id:"m1",name:"כפר עציון",frequency:"2 פעמים בשבוע"},{id:"m2",name:"ביס",frequency:"2 פעמים בשבוע"},{id:"m3",name:"נוקדים",frequency:"2 פעמים בשבוע"},{id:"m4",name:"ראש צורים",frequency:"כל שבוע"},{id:"m5",name:"כרמי צור",frequency:"כל שבוע"},{id:"m6",name:"מתחם לולים",frequency:"פעם בחודש"},{id:"m7",name:"חצר הכפר",frequency:"פעמיים בחודש"}],
+  devSites:[],weekAssign:{},weekNotes:{},attendance:{},dailyTasks:{},receipts:[],expenses:[],trips:{},nextVisitNotes:{},meetings:[],billingExtras:[],projectOrders:{},log:[],
+  defaultStartTime:"07:30",defaultEndTime:"16:00",
+  inventory:[
+    {id:"t1",name:"ספיון",category:"trees"},
+    {id:"t2",name:"דולב",category:"trees"},
+    {id:"t3",name:"פיסטריה",category:"trees"},
+    {id:"t4",name:"אלון תבור",category:"trees"},
+    {id:"t5",name:"אלון אנגלי",category:"trees"},
+    {id:"t6",name:"מילה ירוקה",category:"trees"},
+    {id:"t7",name:"סיגלון",category:"trees"},
+    {id:"t8",name:"אלביציה",category:"trees"},
+    {id:"t9",name:"תות אפגני",category:"trees"},
+    {id:"t10",name:"חרוב",category:"trees"},
+    {id:"t11",name:"אדר סורי",category:"trees"},
+    {id:"t12",name:"מייש",category:"trees"},
+    {id:"t13",name:"כליל החורש",category:"trees"},
+    {id:"t14",name:"כלה",category:"trees"},
+    {id:"s1",name:"אלת המסטיק",category:"shrubs"},
+    {id:"s2",name:"אלה ארץ-ישראלית",category:"shrubs"},
+    {id:"s3",name:"אשחר ארץ-ישראלי",category:"shrubs"},
+    {id:"s4",name:"אשחר רחב-עלים",category:"shrubs"},
+    {id:"s5",name:"אוג חרוק / אוג מסולסל",category:"shrubs"},
+    {id:"s6",name:"קידה שעירה",category:"shrubs"},
+    {id:"s7",name:"רותם המדבר",category:"shrubs"},
+    {id:"s8",name:"אחירותם החורש",category:"shrubs"},
+    {id:"s9",name:"שיזף השיח",category:"shrubs"},
+    {id:"s10",name:"שכרון מצוי",category:"shrubs"},
+    {id:"s11",name:"מורן החורש",category:"shrubs"},
+    {id:"s12",name:"ערער ארץ-ישראלי",category:"shrubs"},
+    {id:"s13",name:"עוזרר קוצני",category:"shrubs"},
+    {id:"s14",name:"חרוב מצוי",category:"shrubs"},
+    {id:"s15",name:"סירה קוצנית",category:"shrubs"},
+    {id:"s16",name:"רוזמרין רפואי",category:"shrubs"},
+    {id:"s17",name:"לבנדר / אזוביון רפואי",category:"shrubs"},
+    {id:"s18",name:"מרווה משולשת",category:"shrubs"},
+    {id:"s19",name:"אזוב מצוי / זעתר",category:"shrubs"},
+    {id:"s20",name:"צתרה ורודה",category:"shrubs"},
+    {id:"s21",name:"הרדוף הנחלים",category:"shrubs"},
+    {id:"s22",name:"לנטנה ססגונית",category:"shrubs"},
+    {id:"s23",name:"פיטוספורום",category:"shrubs"},
+    {id:"s24",name:"טבק השיח",category:"shrubs"},
+    {id:"s25",name:"שיח אברהם מצוי",category:"shrubs"},
+    {id:"s26",name:"בוגנוויליה",category:"shrubs"},
+    {id:"s27",name:"היביסקוס סיני",category:"shrubs"},
+    {id:"s28",name:"ורד הגינה",category:"shrubs"},
+    {id:"s29",name:"וייגלה",category:"shrubs"},
+    {id:"s30",name:"פורסיתיה",category:"shrubs"},
+    {id:"s31",name:"לילך",category:"shrubs"},
+    {id:"s32",name:"הורטנזיה",category:"shrubs"},
+    {id:"s33",name:"ספיראה",category:"shrubs"},
+    {id:"s34",name:"פילדלפוס / שמשון",category:"shrubs"},
+    {id:"s35",name:"יסמין מדומה",category:"shrubs"},
+    {id:"s36",name:"תאשור מצוי",category:"shrubs"},
+    {id:"s37",name:"ברוש מטפס / ננסי",category:"shrubs"},
+    {id:"s38",name:"ערער - זנים זוחלים",category:"shrubs"},
+    {id:"s39",name:"קוטונאסטר",category:"shrubs"},
+    {id:"s40",name:"פירקנטה",category:"shrubs"},
+    {id:"s41",name:"ברבריס",category:"shrubs"},
+    {id:"s42",name:"וסטרינגיה",category:"shrubs"},
+    {id:"s43",name:"לויקופילום / מרווה טקסנית",category:"shrubs"},
+    {id:"s44",name:"אוזן הארי / סטכיס",category:"shrubs"},
+  ],
+};
+
+// Inventory categories and default sizes
+const INV_CATS=[
+  {id:"trees",label:"עצים",icon:"🌳",sizes:["6","7","8"]},
+  {id:"shrubs",label:"שיחים",icon:"🌿",sizes:["כוסית","11","12","4 ליטר","10 ליטר"]},
+  {id:"seasonal",label:"עונתי",icon:"🌸",sizes:["כוסית","12","4 ליטר"]},
+];
+
+// Helper: get all photos sorted/filtered
+function getAllPhotos(data){
+  const all=[];
+  Object.keys(data.photos||{}).forEach(key=>{
+    (data.photos[key]||[]).forEach(p=>{
+      all.push({...p, _key:key});
+    });
+  });
+  return all;
+}
+
+function App(){
+  const [authed,setAuthed]=useState(true);
+  const [pw,setPw]=useState("");
+  const [pwErr,setPwErr]=useState(false);
+  const [shake,setShake]=useState(false);
+  const [loaded,setLoaded]=useState(false);
+  const [data,setData]=useState({...EMPTY});
+  const [view,setView]=useState("monthly");
+  const [dailyTab,setDailyTab]=useState("tasks");
+  const [weekBase,setWeekBase]=useState(new Date());
+  const [selDay,setSelDay]=useState(new Date());
+  const [modal,setModal]=useState(null);
+  const [form,setForm]=useState({});
+  const [sNW,setSNW]=useState("");
+  const [sNM,setSNM]=useState("");
+  const [sNMF,setSNMF]=useState("כל שבוע");
+  const [sND,setSND]=useState("");
+  const [sNDD,setSNDD]=useState("");
+  const [expImg,setExpImg]=useState(null);
+  const [expStep,setExpStep]=useState(0);
+  const [syncStatus,setSyncStatus]=useState("saved");
+  const [siteDetailTab,setSiteDetailTab]=useState("overview");
+  const [galleryFilter,setGalleryFilter]=useState("all");
+  const [zoomImg,setZoomImg]=useState(null);
+  const [monthOffset,setMonthOffset]=useState(0);
+  const [ordersFilter,setOrdersFilter]=useState("all");
+  const [ordersSearch,setOrdersSearch]=useState("");
+
+  const week=useMemo(()=>getWeek(weekBase),[weekBase]);
+  const wkLabel=fmtD(week[0])+" – "+fmtD(week[6]);
+  const todayISO=iso(new Date());
+  const selISO=iso(selDay);
+
+  useEffect(()=>{(async()=>{
+    const d=await load();
+    if(d){
+      const merged={...EMPTY,...d};
+      // Auto-seed inventory: add any missing default items, never delete existing
+      if(!merged.inventory)merged.inventory=[];
+      const existingIds=new Set(merged.inventory.map(it=>it.id));
+      const existingNames=new Set(merged.inventory.map(it=>(it.name||"").trim()));
+      let addedCount=0;
+      INIT.inventory.forEach(defItem=>{
+        if(!existingIds.has(defItem.id) && !existingNames.has(defItem.name.trim())){
+          merged.inventory.push({...defItem});
+          addedCount++;
+        }
+      });
+      setData(merged);
+    }
+    else { setData({...INIT}); await save({...INIT}); }
+    setLoaded(true);
+  })();},[]);
+
+  const saveTimer = useRef(null);
+  useEffect(()=>{
+    if(!loaded) return;
+    setSyncStatus("saving");
+    if(saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async ()=>{
+      const ok = await save(data);
+      setSyncStatus(ok ? "saved" : "error");
+    }, 400);
+    return ()=>{ if(saveTimer.current) clearTimeout(saveTimer.current); };
+  },[data,loaded]);
+
+  useEffect(()=>{
+    if(!loaded) return;
+    const channel = sb.channel("app_data_"+ROW_ID)
+      .on("postgres_changes",
+          { event: "*", schema: "public", table: "app_data", filter: "id=eq."+ROW_ID },
+          (payload)=>{
+            const incoming = payload.new && payload.new.data;
+            if(!incoming) return;
+            if(incoming._sid === MY_SID) return;
+            const clean = stripSid(incoming);
+            setData(p => JSON.stringify(p)===JSON.stringify(clean) ? p : {...EMPTY, ...clean});
+          })
+      .subscribe();
+    return ()=>{ sb.removeChannel(channel); };
+  },[loaded]);
+
+  const up=fn=>setData(p=>{const n=JSON.parse(JSON.stringify(p));fn(n);return n;});
+  const allSites=useMemo(()=>[...(data.maintenanceSites||[]).map(s=>({...s,type:"m"})),...(data.devSites||[]).map(s=>({...s,type:"d"}))],[data.maintenanceSites,data.devSites]);
+  const sn=sid=>allSites.find(s=>s.id===sid)?.name||"?";
+  const meetingLabel=m=>m.siteId?sn(m.siteId):(m.customPlace||"פגישה");
+
+  // Universal image picker - camera OR gallery
+  const handleAnyImg=(callback)=>(e)=>{
+    const f=e.target.files?.[0];
+    if(!f)return;
+    const r=new FileReader();
+    r.onload=ev=>callback(ev.target.result);
+    r.readAsDataURL(f);
+    e.target.value="";
+  };
+
+  // ─── Actions ───
+  const dStart=()=>data.defaultStartTime||"07:30";
+  const dEnd=()=>data.defaultEndTime||"16:00";
+  const togAtt=(dy,wid)=>{up(d=>{if(!d.attendance)d.attendance={};if(!d.attendance[dy])d.attendance[dy]={};const c=d.attendance[dy][wid];if(c&&c.present)d.attendance[dy][wid]={...c,present:false};else d.attendance[dy][wid]={present:true,startTime:(c?.startTime)||(d.defaultStartTime||"07:30"),endTime:(c?.endTime)||(d.defaultEndTime||"16:00"),siteId:(c?.siteId)||""};});};
+  const upAtt=(dy,wid,f,v)=>{if(f==="siteId"&&v==="__add__"){setModal("addSiteQuick");return;}up(d=>{if(!d.attendance)d.attendance={};if(!d.attendance[dy])d.attendance[dy]={};const c=d.attendance[dy][wid]||{present:true,startTime:(d.defaultStartTime||"07:30"),endTime:(d.defaultEndTime||"16:00"),siteId:""};d.attendance[dy][wid]={...c,[f]:v};});};
+  const getAtt=(dy,wid)=>data.attendance?.[dy]?.[wid]||{present:false,startTime:dStart(),endTime:dEnd(),siteId:""};
+  const togTask=(dy,tid)=>{up(d=>{const t=(d.dailyTasks?.[dy]||[]).find(x=>x.id===tid);if(t)t.status=t.status==="done"?"todo":"done";});};
+  const delTask=(dy,tid)=>{up(d=>{if(d.dailyTasks?.[dy])d.dailyTasks[dy]=d.dailyTasks[dy].filter(x=>x.id!==tid);});};
+  const saveTask=()=>{const dateKey=form.taskDate||selISO;up(d=>{if(!d.dailyTasks)d.dailyTasks={};if(!d.dailyTasks[dateKey])d.dailyTasks[dateKey]=[];d.dailyTasks[dateKey].push({id:uid(),siteId:form.siteId,type:form.type,notes:form.notes||"משימה",status:"todo",image:form.image||"",billable:""});});setModal(null);setForm({});};
+  const editTask=()=>{const dy=form.editTaskDate;const tid=form.editTaskId;if(!dy||!tid)return;up(d=>{const t=(d.dailyTasks?.[dy]||[]).find(x=>x.id===tid);if(t){t.notes=form.notes||t.notes;t.image=form.image||"";if(form.siteId!==undefined){t.siteId=form.siteId;t.type=allSites.find(s=>s.id===form.siteId)?.type||"";}}});setModal(null);setForm({});};
+  const saveReminder=()=>{if(!form.notes||!form.notes.trim())return;up(d=>{if(!d.dailyTasks)d.dailyTasks={};if(!d.dailyTasks[todayISO])d.dailyTasks[todayISO]=[];d.dailyTasks[todayISO].push({id:uid(),siteId:"",type:"",notes:form.notes.trim(),status:"todo",image:form.image||"",billable:""});});setModal(null);setForm({});};
+  const editReminder=()=>{const dy=form.editTaskDate;const tid=form.editTaskId;if(!dy||!tid)return;up(d=>{const t=(d.dailyTasks?.[dy]||[]).find(x=>x.id===tid);if(t){t.notes=form.notes||t.notes;t.image=form.image||"";}});setModal(null);setForm({});};
+  const markBillable=(dy,tid,extras)=>{up(d=>{const t=(d.dailyTasks?.[dy]||[]).find(x=>x.id===tid);if(t){t.billable="ready";t.billingExtras=extras||"";}});};
+  const markInvoiced=(dy,tid)=>{up(d=>{const t=(d.dailyTasks?.[dy]||[]).find(x=>x.id===tid);if(t)t.billable="invoiced";});};
+  const saveReceipt=()=>{up(d=>{if(!d.receipts)d.receipts=[];d.receipts.push({id:uid(),date:selISO,amount:+form.amount||0,client:form.client,desc:form.desc});});setModal(null);};
+  const quickSaveExp=(siteId)=>{up(d=>{if(!d.expenses)d.expenses=[];d.expenses.push({id:uid(),date:todayISO,amount:0,desc:"",siteId,type:"invoice",image:expImg||""});});setExpImg(null);setExpStep(0);setModal(null);};
+
+  // ─── Photo: store under SITE id (not date) so site has its own gallery ───
+  const savePhoto=(siteId,photoType,note,image,date)=>{
+    up(d=>{
+      if(!d.photos)d.photos={};
+      const key=siteId||"general";
+      if(!d.photos[key])d.photos[key]=[];
+      d.photos[key].push({id:uid(),date:date||todayISO,photoType:photoType||"",note:note||"",image:image||"",siteId:siteId||""});
+    });
+  };
+  const delPhoto=(key,id)=>{up(d=>{if(d.photos?.[key])d.photos[key]=d.photos[key].filter(p=>p.id!==id);});};
+  const movePhoto=(oldKey,id,newSiteId)=>{up(d=>{const ph=(d.photos?.[oldKey]||[]).find(p=>p.id===id);if(!ph)return;d.photos[oldKey]=d.photos[oldKey].filter(p=>p.id!==id);const nk=newSiteId||"general";if(!d.photos[nk])d.photos[nk]=[];ph.siteId=newSiteId||"";d.photos[nk].push(ph);});};
+
+  // ─── Trip ───
+  const saveTrip=()=>{const dateKey=form.tripDate||selISO;const place=(form.tripPlace||"").trim();if(!place)return;up(d=>{if(!d.trips)d.trips={};if(!d.trips[dateKey])d.trips[dateKey]=[];d.trips[dateKey].push({id:uid(),place,note:(form.tripNote||"").trim()});});setModal(null);setForm({});};
+  const delTrip=(dy,tid)=>{up(d=>{if(d.trips?.[dy])d.trips[dy]=d.trips[dy].filter(x=>x.id!==tid);});};
+
+  // ─── Next Visit Notes (per site) ───
+  const addNextVisitNote=(siteId,text)=>{if(!text.trim())return;up(d=>{if(!d.nextVisitNotes)d.nextVisitNotes={};if(!d.nextVisitNotes[siteId])d.nextVisitNotes[siteId]=[];d.nextVisitNotes[siteId].push({id:uid(),text:text.trim(),done:false,addedDate:todayISO});});};
+  const togNextVisit=(siteId,nid)=>{up(d=>{const n=(d.nextVisitNotes?.[siteId]||[]).find(x=>x.id===nid);if(n)n.done=!n.done;});};
+  const delNextVisit=(siteId,nid)=>{up(d=>{if(d.nextVisitNotes?.[siteId])d.nextVisitNotes[siteId]=d.nextVisitNotes[siteId].filter(x=>x.id!==nid);});};
+
+  // ─── Meetings ───
+  const saveMeeting=()=>{up(d=>{if(!d.meetings)d.meetings=[];const isCust=form.meetingSiteId==="__custom__";d.meetings.push({id:uid(),siteId:isCust?"":(form.meetingSiteId||""),customPlace:isCust?(form.meetingCustomPlace||"פגישה"):"",date:form.meetingDate||todayISO,time:form.meetingTime||"",notes:form.meetingNotes||"",done:false});});setModal(null);setForm({});};
+  const togMeeting=(mid)=>{up(d=>{const m=(d.meetings||[]).find(x=>x.id===mid);if(m)m.done=!m.done;});};
+  const delMeeting=(mid)=>{up(d=>{if(d.meetings)d.meetings=d.meetings.filter(x=>x.id!==mid);});};
+
+  // ─── Billing Extras (per site, accumulate) ───
+  const addBillingExtra=()=>{const amt=+form.extraAmount;if(!amt||!form.extraSiteId)return;up(d=>{if(!d.billingExtras)d.billingExtras=[];d.billingExtras.push({id:uid(),siteId:form.extraSiteId,date:form.extraDate||todayISO,amount:amt,desc:form.extraDesc||"",invoiced:false});});setModal(null);setForm({});};
+  const togExtraInvoiced=(eid)=>{up(d=>{const e=(d.billingExtras||[]).find(x=>x.id===eid);if(e)e.invoiced=!e.invoiced;});};
+  const delExtra=(eid)=>{up(d=>{if(d.billingExtras)d.billingExtras=d.billingExtras.filter(x=>x.id!==eid);});};
+
+  // ─── Project Orders (materials/equipment per project) ───
+  const addOrder=()=>{if(!form.orderProjectId||!form.orderDesc)return;up(d=>{if(!d.projectOrders)d.projectOrders={};if(!d.projectOrders[form.orderProjectId])d.projectOrders[form.orderProjectId]=[];d.projectOrders[form.orderProjectId].push({id:uid(),desc:form.orderDesc.trim(),supplier:form.orderSupplier||"",amount:+form.orderAmount||0,status:form.orderStatus||"ordered",date:todayISO,note:form.orderNote||""});});setModal(null);setForm({});};
+  const upOrderStatus=(pid,oid,status)=>{up(d=>{const o=(d.projectOrders?.[pid]||[]).find(x=>x.id===oid);if(o)o.status=status;});};
+  const delOrder=(pid,oid)=>{up(d=>{if(d.projectOrders?.[pid])d.projectOrders[pid]=d.projectOrders[pid].filter(x=>x.id!==oid);});};
+  // Bulk order: form.bulkItems is array [{desc,amount,projectId}]; common supplier+status+date
+  const saveBulkOrder=()=>{
+    const items=(form.bulkItems||[]).filter(it=>it.desc && it.desc.trim() && it.projectId);
+    if(items.length===0)return;
+    const supplier=form.bulkSupplier||"";
+    const status=form.bulkStatus||"ordered";
+    const date=form.bulkDate||todayISO;
+    const note=form.bulkNote||"";
+    up(d=>{
+      if(!d.projectOrders)d.projectOrders={};
+      items.forEach(it=>{
+        if(!d.projectOrders[it.projectId])d.projectOrders[it.projectId]=[];
+        d.projectOrders[it.projectId].push({id:uid(),desc:it.desc.trim(),supplier,amount:+it.amount||0,status,date,note});
+      });
+    });
+    setModal(null);setForm({});
+  };
+  const editOrder=()=>{const pid=form.editOrderPid;const oid=form.editOrderOid;if(!pid||!oid)return;up(d=>{const o=(d.projectOrders?.[pid]||[]).find(x=>x.id===oid);if(o){o.desc=form.orderDesc||o.desc;o.supplier=form.orderSupplier||"";o.amount=+form.orderAmount||0;o.status=form.orderStatus||o.status;o.note=form.orderNote||"";}});setModal(null);setForm({});};
+
+  // ─── Inventory (preset items library) ───
+  const addInvItem=()=>{const name=(form.invName||"").trim();if(!name||!form.invCategory)return;up(d=>{if(!d.inventory)d.inventory=[];d.inventory.push({id:uid(),name,category:form.invCategory,size:form.invSize||"",defaultPrice:+form.invPrice||0});});setForm({...form,invName:"",invSize:"",invPrice:""});};
+  const delInvItem=(id)=>{up(d=>{if(d.inventory)d.inventory=d.inventory.filter(x=>x.id!==id);});};
+  const editInvItem=(id,patch)=>{up(d=>{const it=(d.inventory||[]).find(x=>x.id===id);if(it)Object.assign(it,patch);});};
+
+  // ─── Sub contractors ───
+  const quickAddSub=()=>{const n=(form.subName||"").trim();if(!n)return;const dates=(form.subDates||[todayISO]).filter(d=>d);if(!dates.length)return;up(d=>{if(!d.subContracts)d.subContracts=[];let siteId=form.subSiteId||"";if(siteId==="__new__"){const newName=(form.subNewSite||"").trim();if(newName){const newId=uid();if(!d.devSites)d.devSites=[];d.devSites.push({id:newId,name:newName,deadline:""});siteId=newId;}else{siteId="";}}d.subContracts.push({id:uid(),name:n,siteId,dates,status:"planned"});});setModal(null);setForm({});};
+  const completeSub=()=>{up(d=>{const s=(d.subContracts||[]).find(x=>x.id===form.subId);if(!s)return;s.status="done";s.workerCount=+form.subWorkerCount||1;s.hoursFrom=form.subFrom||dStart();s.hoursTo=form.subTo||dEnd();s.notes=form.subNotes||"";});setModal(null);setForm({});};
+  const delSub=(id)=>{up(d=>{if(d.subContracts)d.subContracts=d.subContracts.filter(x=>x.id!==id);});};
+  const removeSubFromDay=(subId,dateKey)=>{up(d=>{const s=(d.subContracts||[]).find(x=>x.id===subId);if(!s)return;s.dates=(s.dates||[]).filter(x=>x!==dateKey);if(s.dates.length===0)d.subContracts=d.subContracts.filter(x=>x.id!==subId);});};
+
+  const togWA=(dy,sid,type)=>{up(d=>{if(!d.weekAssign)d.weekAssign={};if(!d.weekAssign[dy])d.weekAssign[dy]=[];const i=d.weekAssign[dy].findIndex(a=>a.siteId===sid);if(i>=0)d.weekAssign[dy].splice(i,1);else d.weekAssign[dy].push({siteId:sid,type});});};
+  const isAsgn=(dy,sid)=>(data.weekAssign?.[dy]||[]).some(a=>a.siteId===sid);
+  const addDev=()=>{if(!sND.trim())return;up(d=>{d.devSites=[...(d.devSites||[]),{id:uid(),name:sND.trim(),deadline:sNDD,quotedPrice:0,status:"active"}];});setSND("");setSNDD("");};
+
+  const login=()=>{if(pw===PW){setAuthed(true);setPwErr(false);}else{setPwErr(true);setShake(true);setTimeout(()=>setShake(false),500);}};
+
+  // LOGIN
+  if(!authed)return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(160deg,#1b4332,#2d6a4f 50%,#40916c)",fontFamily:"'Rubik',sans-serif",direction:"rtl"}}>
+      <style>{`@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}@keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}@keyframes fl{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}*{box-sizing:border-box;margin:0}`}</style>
+      <div style={{width:360,maxWidth:"92vw",padding:"40px 32px",borderRadius:20,background:"rgba(255,253,245,0.96)",boxShadow:"0 24px 80px rgba(0,0,0,0.25)",animation:shake?"shake 0.4s":"fadeIn 0.5s",textAlign:"center"}}>
+        <div style={{fontSize:48,marginBottom:4,animation:"fl 3s ease-in-out infinite"}}>🌿</div>
+        <h1 style={{fontSize:24,fontWeight:700,color:C.grn,margin:"0 0 24px"}}>{"מעקב גינון"}</h1>
+        <input type="password" value={pw} onChange={e=>{setPw(e.target.value);setPwErr(false);}} onKeyDown={e=>e.key==="Enter"&&login()} placeholder={"סיסמה"} style={{width:"100%",padding:14,borderRadius:10,border:"2px solid "+(pwErr?C.red:C.bdr),fontSize:20,textAlign:"center",letterSpacing:6,fontFamily:"inherit",outline:"none",boxSizing:"border-box",marginBottom:12}}/>
+        {pwErr&&<p style={{color:C.red,fontSize:13,marginBottom:8}}>{"שגויה"}</p>}
+        <button onClick={login} style={{width:"100%",padding:16,borderRadius:12,border:"none",background:C.grn,color:"#fff",fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"כניסה"}</button>
+      </div>
+    </div>
+  );
+
+  const vs=["monthly","weekly","daily","gallery","projects","settings"];
+  const cv=vs.includes(view)?view:"monthly";
+  const inSubView = cv!=="monthly";
+
+  // HEADER
+  const header=<div style={{background:C.hdr,padding:"12px 16px",color:"#fff",position:"sticky",top:0,zIndex:100}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        {inSubView && <button onClick={()=>setView("monthly")} style={{background:"rgba(255,255,255,0.18)",border:"none",color:"#fff",width:30,height:30,borderRadius:"50%",cursor:"pointer",fontSize:16,fontFamily:"inherit",lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>{"←"}</button>}
+        <button onClick={()=>setAuthed(false)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",padding:"4px 12px",borderRadius:6,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>{"יציאה"}</button>
+        {syncStatus==="error" && <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:10,fontSize:10,fontWeight:600,background:"rgba(252,165,165,0.25)",color:"#fff"}}><span style={{width:6,height:6,borderRadius:"50%",background:"#ff6b6b"}}></span>{"לא מחובר"}</span>}
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <button onClick={()=>setView("settings")} title={"הגדרות"} style={{background:cv==="settings"?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.15)",border:"none",color:"#fff",width:32,height:32,borderRadius:"50%",cursor:"pointer",fontSize:16,fontFamily:"inherit",lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>{"⚙️"}</button>
+        <span style={{fontSize:17,fontWeight:700}}>{"מעקב גינון"}</span>
+        <span style={{fontSize:22}}>🌿</span>
+      </div>
+    </div>
+  </div>;
+
+  // ═══ MONTHLY ═══
+  const monthlyView=(()=>{
+    const now=new Date();
+    const baseM=now.getMonth()+monthOffset;
+    const baseY=now.getFullYear();
+    const dispDate=new Date(baseY,baseM,1);
+    const mm=dispDate.getMonth(),yy=dispDate.getFullYear();
+    const firstDay=new Date(yy,mm,1);
+    const daysInMonth=new Date(yy,mm+1,0).getDate();
+    const firstDow=firstDay.getDay();
+    const cells=[];
+    for(let i=0;i<firstDow;i++) cells.push(null);
+    for(let d=1;d<=daysInMonth;d++) cells.push(new Date(yy,mm,d));
+
+    // Hebrew month label (combines hebrew month names that span this gregorian month)
+    let hebLabel="";
+    try{
+      const h1=getHebrewDate(new Date(yy,mm,1));
+      const h2=getHebrewDate(new Date(yy,mm,daysInMonth));
+      if(h1 && h2){
+        if(h1.month===h2.month) hebLabel=h1.month;
+        else hebLabel=h1.month+" / "+h2.month;
+      }
+    }catch(e){}
+
+    const billReady=[];
+    const reminders=[];
+    Object.keys(data.dailyTasks||{}).forEach(d=>{(data.dailyTasks[d]||[]).forEach(t=>{
+      if(t.billable==="ready")billReady.push({...t,date:d});
+      if(t.status!=="done" && !t.siteId)reminders.push({...t,date:d});
+    });});
+    reminders.sort((a,b)=>a.date.localeCompare(b.date));
+
+    // Upcoming meetings (next 14 days)
+    const upcomingMeetings=(data.meetings||[]).filter(m=>{const md=new Date(m.date);const dd=(md-new Date())/(1000*60*60*24);return !m.done && dd>=-1 && dd<=14;}).sort((a,b)=>a.date.localeCompare(b.date));
+
+    // Active projects
+    const activeProjects=(data.devSites||[]).filter(s=>s.status!=="done");
+
+    return <div style={{padding:16}}>
+      {/* Bills alert */}
+      {billReady.length>0 && <div onClick={()=>setModal("billingList")} style={{background:"#fff3cd",borderRadius:12,border:"2px solid "+C.org,padding:12,marginBottom:10,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontSize:18}}>{"←"}</span>
+        <span style={{fontSize:14,fontWeight:700,color:C.org}}>{"💰 "+billReady.length+" משימות מוכנות לחיוב"}</span>
+      </div>}
+
+      {/* Upcoming meetings alert */}
+      {upcomingMeetings.length>0 && <div onClick={()=>setModal("meetingsList")} style={{background:C.purpB,borderRadius:12,border:"2px solid "+C.purp,padding:12,marginBottom:10,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontSize:18}}>{"←"}</span>
+        <span style={{fontSize:14,fontWeight:700,color:C.purp}}>{"📅 "+upcomingMeetings.length+" פגישות קרובות"}</span>
+      </div>}
+
+      {/* Reminders */}
+      <div style={{background:"#fff",borderRadius:14,border:"2px solid "+C.grn,padding:14,marginBottom:14,boxShadow:"0 2px 8px rgba(45,106,79,0.08)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <button onClick={()=>{setForm({notes:"",siteId:"",type:"",image:""});setModal("addReminder");}} style={{background:C.grn,color:"#fff",border:"none",padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"+ תזכורת"}</button>
+          <div style={{fontSize:15,fontWeight:700,color:C.grn,display:"flex",alignItems:"center",gap:6}}>
+            {"📌 תזכורות"}
+            <span style={{background:C.grn,color:"#fff",padding:"2px 8px",borderRadius:10,fontSize:11}}>{reminders.length}</span>
+          </div>
+        </div>
+        {reminders.length===0 && <div style={{textAlign:"center",color:C.txtL,fontSize:13,padding:"12px 0"}}>{"אין תזכורות"}</div>}
+        {reminders.slice(0,6).map((t,i)=><div key={t.id+"_"+i} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:8,background:C.cardA,marginBottom:6,border:"1px solid "+C.bdr}}>
+          <span onClick={()=>togTask(t.date,t.id)} style={{fontSize:22,cursor:"pointer"}}>{"⬜"}</span>
+          <span onClick={()=>{setForm({editTaskId:t.id,editTaskDate:t.date,notes:t.notes,image:t.image||""});setModal("editReminder");}} style={{fontSize:14,color:C.blu,cursor:"pointer"}}>{"✏️"}</span>
+          <span onClick={()=>delTask(t.date,t.id)} style={{fontSize:14,color:C.red,cursor:"pointer"}}>{"🗑"}</span>
+          <div style={{flex:1,textAlign:"right"}}>
+            <div style={{fontSize:14,fontWeight:500}}>{t.notes}</div>
+          </div>
+          {t.image && <img src={t.image} onClick={()=>setZoomImg(t.image)} style={{width:40,height:40,objectFit:"cover",borderRadius:6,cursor:"pointer"}} alt=""/>}
+        </div>)}
+      </div>
+
+      {/* CALENDAR */}
+      <div style={{background:C.card,borderRadius:14,border:"1px solid "+C.bdr,padding:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <button onClick={()=>setMonthOffset(monthOffset+1)} style={{background:C.grnP,border:"none",color:C.grn,fontSize:20,cursor:"pointer",width:36,height:36,borderRadius:"50%",fontWeight:700,fontFamily:"inherit"}}>{"‹"}</button>
+          <div style={{textAlign:"center",flex:1}}>
+            <div style={{fontSize:16,fontWeight:700,color:C.grn}}>{MONTHS[mm]+" "+yy}</div>
+            {hebLabel && <div style={{fontSize:11,color:C.txtM,marginTop:2}}>{hebLabel}</div>}
+          </div>
+          <button onClick={()=>setMonthOffset(monthOffset-1)} style={{background:C.grnP,border:"none",color:C.grn,fontSize:20,cursor:"pointer",width:36,height:36,borderRadius:"50%",fontWeight:700,fontFamily:"inherit"}}>{"›"}</button>
+        </div>
+        {monthOffset!==0 && <div style={{textAlign:"center",marginBottom:8}}>
+          <button onClick={()=>setMonthOffset(0)} style={{padding:"4px 12px",borderRadius:14,border:"1px solid "+C.grn,background:C.grnP,color:C.grn,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"חזור להיום"}</button>
+        </div>}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7, 1fr)",gap:3,marginBottom:4}}>
+          {DAYNAMES.map((d,i)=><div key={i} style={{textAlign:"center",fontSize:10,fontWeight:700,color:C.txtM,padding:4}}>{d.slice(0,3)}</div>)}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7, 1fr)",gap:3}}>
+          {cells.map((d,i)=>{
+            if(!d)return <div key={i} style={{minHeight:64}}></div>;
+            const dy=iso(d);
+            const assigns=data.weekAssign?.[dy]||[];
+            const tasks=data.dailyTasks?.[dy]||[];
+            const daySubs=(data.subContracts||[]).filter(s=>(s.dates||[]).includes(dy));
+            const dayTrips=(data.trips?.[dy]||[]);
+            const dayMeetings=(data.meetings||[]).filter(m=>m.date===dy);
+            const isToday=dy===todayISO;
+            const isSel=dy===selISO;
+            const holiday=getHoliday(d);
+            const isShabbat=d.getDay()===6;
+            const heb=getHebrewDate(d);
+            const allCells=[
+              ...assigns.slice(0,1).map(a=>({type:a.type==="m"?"m":"d",label:sn(a.siteId)})),
+              ...dayMeetings.slice(0,1).map(m=>({type:"meet",label:"📅 "+(m.time||"")+" "+meetingLabel(m)})),
+              ...dayTrips.slice(0,1).map(t=>({type:"trip",label:"🚗 "+t.place})),
+              ...daySubs.slice(0,1).map(s=>({type:"sub",label:"🔨 "+s.name}))
+            ];
+            const moreCount=(assigns.length+dayMeetings.length+dayTrips.length+daySubs.length)-allCells.length;
+            return <div key={i} onClick={()=>{setSelDay(d);setView("daily");}} style={{minHeight:68,padding:3,borderRadius:6,border:"1px solid "+(isToday?C.grn:isSel?C.blu:holiday?C.org:isShabbat?C.bdr:C.bdr),background:isToday?C.grnP:isSel?C.bluB:holiday?"#fff8e7":isShabbat?"#faf7f0":"#fff",cursor:"pointer",fontSize:10,overflow:"hidden",position:"relative"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:1,gap:2}}>
+                <div style={{fontSize:8,color:C.txtL,fontWeight:600}}>{heb?heb.day:""}</div>
+                <div style={{fontSize:11,fontWeight:isToday?700:500,color:isToday?C.grn:holiday?C.org:C.txt,textAlign:"center"}}>{d.getDate()}</div>
+              </div>
+              {holiday && <div style={{fontSize:7,padding:"1px 2px",borderRadius:2,background:C.org,color:"#fff",marginBottom:1,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",fontWeight:700}}>{holiday}</div>}
+              {allCells.slice(0,3).map((a,j)=><div key={j} style={{fontSize:8,padding:"1px 3px",borderRadius:3,marginBottom:1,background:a.type==="m"?C.orgB:a.type==="sub"?C.bluB:a.type==="meet"?C.purpB:a.type==="trip"?C.purpB:C.grnP,color:a.type==="m"?C.org:a.type==="sub"?C.blu:a.type==="meet"?C.purp:a.type==="trip"?C.purp:C.grn,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{a.label}</div>)}
+              {moreCount>0 && <div style={{fontSize:8,color:C.txtM,textAlign:"center"}}>{"+"+moreCount}</div>}
+              {tasks.length>0 && allCells.length===0 && <div style={{fontSize:8,color:C.org,textAlign:"center"}}>{"📌"+tasks.length}</div>}
+            </div>;
+          })}
+        </div>
+        <div style={{fontSize:10,color:C.txtL,textAlign:"center",marginTop:10}}>{"לחץ על יום · 🚗=נסיעה · 📅=פגישה · 🔨=קבלן"}</div>
+      </div>
+
+      {/* Quick actions */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:6,marginTop:14}}>
+        <button onClick={()=>{setExpImg(null);setExpStep(0);setForm({});setModal("photoMenu");}} style={{padding:"14px 4px",borderRadius:12,border:"none",background:C.hdr,color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+          <span style={{fontSize:20}}>📷</span>{"צלם / גלריה"}
+        </button>
+        <button onClick={()=>{setForm({notes:"",siteId:"",type:"",image:""});setModal("addTask");}} style={{padding:"14px 4px",borderRadius:12,border:"none",background:C.grn,color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+          <span style={{fontSize:20}}>➕</span>{"משימה"}
+        </button>
+        <button onClick={()=>{setOrdersFilter("all");setOrdersSearch("");setModal("allOrders");}} style={{padding:"14px 4px",borderRadius:12,border:"none",background:C.org,color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+          <span style={{fontSize:20}}>📦</span>{"הזמנות"+((()=>{const all=[];Object.values(data.projectOrders||{}).forEach(arr=>arr.forEach(o=>{if(o.status!=="received")all.push(o);}));return all.length>0?" ("+all.length+")":"";})())}
+        </button>
+        <button onClick={()=>{setForm({subName:"",subSiteId:"",subNewSite:"",subWorkerCount:1,subFrom:dStart(),subTo:dEnd(),subDates:[todayISO],subNotes:""});setModal("quickSub");}} style={{padding:"14px 4px",borderRadius:12,border:"none",background:C.blu,color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+          <span style={{fontSize:20}}>👷</span>{"קבלן"}
+        </button>
+      </div>
+
+      {/* Navigation */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:6,marginTop:8}}>
+        <button onClick={()=>setView("weekly")} style={{padding:"10px 4px",borderRadius:10,border:"1px solid "+C.bdr,background:C.wht,color:C.txtM,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"📅 שבוע"}</button>
+        <button onClick={()=>{setSelDay(new Date());setView("daily");}} style={{padding:"10px 4px",borderRadius:10,border:"1px solid "+C.bdr,background:C.wht,color:C.txtM,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"📋 היום"}</button>
+        <button onClick={()=>{setForm({tripDate:todayISO,tripPlace:"",tripNote:""});setModal("addTrip");}} style={{padding:"10px 4px",borderRadius:10,border:"1px solid "+C.purp,background:C.purpB,color:C.purp,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"🚗 נסיעה"}</button>
+        <button onClick={()=>setView("projects")} style={{padding:"10px 4px",borderRadius:10,border:"2px solid "+C.blu,background:C.bluB,color:C.blu,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"🌱 פרויקטים"+(activeProjects.length>0?" ("+activeProjects.length+")":"")}</button>
+      </div>
+
+      {/* Site cards */}
+      {(allSites.length>0) && <div style={{marginTop:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,padding:"0 4px"}}>
+          <span style={{fontSize:11,color:C.blu,cursor:"pointer"}} onClick={()=>setView("settings")}>{"נהל ←"}</span>
+          <span style={{fontSize:14,fontWeight:700,color:C.txt}}>{"📁 כרטיסי לקוח"}</span>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2, 1fr)",gap:8}}>
+          {allSites.map(s=>{
+            const taskCount=Object.values(data.dailyTasks||{}).flat().filter(t=>t.siteId===s.id&&t.status!=="done").length;
+            const billCount=Object.values(data.dailyTasks||{}).flat().filter(t=>t.siteId===s.id&&t.billable==="ready").length+(data.billingExtras||[]).filter(e=>e.siteId===s.id&&!e.invoiced).length;
+            const nextNotes=(data.nextVisitNotes?.[s.id]||[]).filter(n=>!n.done).length;
+            const isDev=s.type==="d";
+            const accent=isDev?C.blu:C.org;
+            const accentBg=isDev?C.bluB:C.orgB;
+            return <div key={s.id} onClick={()=>{setForm({siteId:s.id});setSiteDetailTab("overview");setModal("siteDetail");}} style={{background:"#fff",borderRadius:10,border:"2px solid "+accent,padding:"10px 12px",cursor:"pointer"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <span style={{fontSize:14}}>{isDev?"🌱":"🔧"}</span>
+                <span style={{fontWeight:700,fontSize:14,textAlign:"right",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:C.txtM}}>
+                <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:60}}>{isDev?(s.deadline||"—"):s.frequency}</span>
+                <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
+                  {nextNotes>0 && <span style={{background:C.purpB,color:C.purp,padding:"2px 6px",borderRadius:8,fontWeight:700}}>{"💡"+nextNotes}</span>}
+                  {taskCount>0 && <span style={{background:accentBg,color:accent,padding:"2px 6px",borderRadius:8,fontWeight:700}}>{"📋"+taskCount}</span>}
+                  {billCount>0 && <span style={{background:"#fff3cd",color:C.org,padding:"2px 6px",borderRadius:8,fontWeight:700}}>{"💰"+billCount}</span>}
+                </div>
+              </div>
+            </div>;
+          })}
+        </div>
+      </div>}
+    </div>;
+  })();
+
+  // ═══ PROJECTS DASHBOARD ═══
+  const projectsView=(()=>{
+    const projects=(data.devSites||[]);
+    const active=projects.filter(p=>p.status!=="done");
+    const done=projects.filter(p=>p.status==="done");
+
+    return <div style={{padding:16}}>
+      <div style={{textAlign:"center",marginBottom:16}}>
+        <h2 style={{fontSize:22,fontWeight:700,color:C.blu,marginBottom:4}}>{"🌱 פרויקטים פתוחים"}</h2>
+        <div style={{fontSize:12,color:C.txtM}}>{active.length+" פעילים · "+done.length+" הסתיימו"}</div>
+      </div>
+
+      <button onClick={()=>{setForm({newProjectName:"",newProjectPrice:"",newProjectDeadline:"",newProjectClient:"",newProjectPhone:"",newProjectAddress:""});setModal("addProject");}} style={{width:"100%",padding:14,borderRadius:12,border:"none",background:C.blu,color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:10}}>{"+ פרויקט חדש"}</button>
+
+      {/* Orders quick actions */}
+      <div style={{display:"flex",gap:6,marginBottom:14}}>
+        <button onClick={()=>{setOrdersFilter("all");setOrdersSearch("");setModal("allOrders");}} style={{flex:1,padding:12,borderRadius:12,border:"2px solid "+C.org,background:"#fff3cd",color:C.org,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"📦 כל ההזמנות"}</button>
+        <button onClick={()=>{setForm({bulkSupplier:"",bulkStatus:"ordered",bulkDate:todayISO,bulkNote:"",bulkItems:[],bulkStep:1});setModal("addBulkOrder");}} style={{flex:1,padding:12,borderRadius:12,border:"none",background:C.org,color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"🛒 הזמנה משולבת"}</button>
+      </div>
+
+      {active.length===0 && <div style={{background:C.wht,borderRadius:14,padding:30,textAlign:"center",border:"1px solid "+C.bdr}}>
+        <div style={{fontSize:36,marginBottom:8}}>🌱</div>
+        <div style={{color:C.txtL,fontSize:14}}>{"אין פרויקטים פתוחים"}</div>
+      </div>}
+
+      {active.map(p=>{
+        const tasks=Object.values(data.dailyTasks||{}).flat().filter(t=>t.siteId===p.id);
+        const doneTasks=tasks.filter(t=>t.status==="done").length;
+        const orders=(data.projectOrders?.[p.id]||[]);
+        const pendingOrders=orders.filter(o=>o.status!=="received").length;
+        const ordersTotal=orders.reduce((s,o)=>s+(+o.amount||0),0);
+        const billable=tasks.filter(t=>t.billable==="ready").length;
+        const extras=(data.billingExtras||[]).filter(e=>e.siteId===p.id);
+        const extrasTotal=extras.filter(e=>!e.invoiced).reduce((s,e)=>s+(+e.amount||0),0);
+        const photos=(data.photos?.[p.id]||[]);
+        const progress=tasks.length>0?Math.round((doneTasks/tasks.length)*100):0;
+
+        return <div key={p.id} onClick={()=>{setForm({siteId:p.id});setSiteDetailTab("overview");setModal("siteDetail");}} style={{background:"#fff",borderRadius:14,border:"2px solid "+C.blu,padding:14,marginBottom:12,cursor:"pointer"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+            <div style={{textAlign:"left",fontSize:12,color:C.txtM}}>
+              {p.deadline && <div style={{padding:"3px 8px",borderRadius:8,background:C.bluB,color:C.blu,fontWeight:700,fontSize:10}}>{"יעד: "+p.deadline}</div>}
+            </div>
+            <div style={{textAlign:"right",flex:1}}>
+              <div style={{fontSize:17,fontWeight:700,color:C.blu}}>{"🌱 "+p.name}</div>
+              {p.client && <div style={{fontSize:12,color:C.txtM}}>{"👤 "+p.client}</div>}
+            </div>
+          </div>
+
+          {/* Quote vs reality */}
+          {p.quotedPrice>0 && <div style={{background:C.cardA,borderRadius:8,padding:"8px 10px",marginBottom:8,fontSize:12}}>
+            {p.quoteNumber && <div style={{display:"flex",justifyContent:"space-between",marginBottom:3,paddingBottom:3,borderBottom:"1px solid "+C.bdr}}>
+              <span style={{fontWeight:700,color:C.blu}}>{"#"+p.quoteNumber}</span>
+              <span style={{color:C.txtM}}>{"📄 מס' הצעה:"}</span>
+            </div>}
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+              <span style={{fontWeight:700}}>{"₪"+p.quotedPrice.toLocaleString()}</span>
+              <span style={{color:C.txtM}}>{"💼 הצעת מחיר:"}</span>
+            </div>
+            {extrasTotal>0 && <div style={{display:"flex",justifyContent:"space-between",color:C.org,fontSize:11}}>
+              <span style={{fontWeight:700}}>{"+₪"+extrasTotal.toLocaleString()}</span>
+              <span>{"תוספות לחיוב:"}</span>
+            </div>}
+            {ordersTotal>0 && <div style={{display:"flex",justifyContent:"space-between",color:C.red,fontSize:11}}>
+              <span style={{fontWeight:700}}>{"₪"+ordersTotal.toLocaleString()}</span>
+              <span>{"הוצאות חומרים:"}</span>
+            </div>}
+          </div>}
+
+          {/* Progress bar */}
+          {tasks.length>0 && <div style={{marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.txtM,marginBottom:3}}>
+              <span style={{fontWeight:700,color:C.grn}}>{progress+"%"}</span>
+              <span>{doneTasks+"/"+tasks.length+" משימות"}</span>
+            </div>
+            <div style={{width:"100%",height:6,background:C.cardA,borderRadius:3,overflow:"hidden"}}>
+              <div style={{width:progress+"%",height:"100%",background:C.grn,transition:"width 0.3s"}}></div>
+            </div>
+          </div>}
+
+          {/* Stats */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:4,fontSize:10,marginTop:8}}>
+            <div style={{textAlign:"center",padding:"6px 2px",background:C.cardA,borderRadius:6}}>
+              <div style={{fontWeight:700,fontSize:13,color:C.org}}>{pendingOrders}</div>
+              <div style={{color:C.txtM}}>{"📦 הזמנות"}</div>
+            </div>
+            <div style={{textAlign:"center",padding:"6px 2px",background:C.cardA,borderRadius:6}}>
+              <div style={{fontWeight:700,fontSize:13,color:C.purp}}>{photos.length}</div>
+              <div style={{color:C.txtM}}>{"📷 תמונות"}</div>
+            </div>
+            <div style={{textAlign:"center",padding:"6px 2px",background:C.cardA,borderRadius:6}}>
+              <div style={{fontWeight:700,fontSize:13,color:C.org}}>{billable}</div>
+              <div style={{color:C.txtM}}>{"💰 חיוב"}</div>
+            </div>
+            <div style={{textAlign:"center",padding:"6px 2px",background:C.cardA,borderRadius:6}}>
+              <div style={{fontWeight:700,fontSize:13,color:C.blu}}>{tasks.length}</div>
+              <div style={{color:C.txtM}}>{"📋 סהכ"}</div>
+            </div>
+          </div>
+        </div>;
+      })}
+
+      {done.length>0 && <div style={{marginTop:20}}>
+        <div style={{fontSize:13,color:C.txtM,marginBottom:8,fontWeight:700,textAlign:"center"}}>{"✓ פרויקטים שהסתיימו ("+done.length+")"}</div>
+        {done.map(p=><div key={p.id} onClick={()=>{setForm({siteId:p.id});setSiteDetailTab("overview");setModal("siteDetail");}} style={{background:C.grnP,borderRadius:10,padding:"10px 14px",marginBottom:6,cursor:"pointer",border:"1px solid "+C.grnL,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:18,color:C.grn}}>{"✓"}</span>
+          <span style={{fontWeight:600}}>{"🌱 "+p.name}</span>
+        </div>)}
+      </div>}
+    </div>;
+  })();
+
+  // ═══ GALLERY ═══
+  const galleryView=(()=>{
+    const allP=getAllPhotos(data).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    let filtered=allP;
+    if(galleryFilter==="general")filtered=allP.filter(p=>!p.siteId);
+    else if(galleryFilter!=="all")filtered=allP.filter(p=>p.siteId===galleryFilter);
+
+    const filters=[
+      {id:"all",label:"הכל",count:allP.length},
+      {id:"general",label:"כללי",count:allP.filter(p=>!p.siteId).length},
+      ...allSites.map(s=>({id:s.id,label:(s.type==="m"?"🔧 ":"🌱 ")+s.name,count:allP.filter(p=>p.siteId===s.id).length})).filter(x=>x.count>0)
+    ];
+
+    return <div style={{padding:16}}>
+      <div style={{textAlign:"center",marginBottom:14}}>
+        <h2 style={{fontSize:22,fontWeight:700,color:C.hdr,marginBottom:4}}>{"🖼️ גלריה"}</h2>
+        <div style={{fontSize:12,color:C.txtM}}>{allP.length+" תמונות"}</div>
+      </div>
+
+      <button onClick={()=>{setExpImg(null);setExpStep(0);setForm({});setModal("quickPhoto");}} style={{width:"100%",padding:14,borderRadius:12,border:"none",background:C.hdr,color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:14}}>{"📷 הוסף תמונה (מצלמה / גלריה)"}</button>
+
+      {/* Filter tabs */}
+      <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:4}}>
+        {filters.map(f=><button key={f.id} onClick={()=>setGalleryFilter(f.id)} style={{flex:"0 0 auto",padding:"8px 12px",borderRadius:20,border:"1px solid "+(galleryFilter===f.id?C.hdr:C.bdr),background:galleryFilter===f.id?C.hdr:C.wht,color:galleryFilter===f.id?"#fff":C.txtM,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{f.label+" ("+f.count+")"}</button>)}
+      </div>
+
+      {filtered.length===0 && <div style={{background:C.wht,borderRadius:14,padding:30,textAlign:"center",border:"1px solid "+C.bdr}}>
+        <div style={{fontSize:36,marginBottom:8}}>📷</div>
+        <div style={{color:C.txtL,fontSize:14}}>{"אין תמונות"}</div>
+      </div>}
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3, 1fr)",gap:6}}>
+        {filtered.map(p=><div key={p.id} onClick={()=>setZoomImg(p)} style={{position:"relative",cursor:"pointer"}}>
+          <img src={p.image} style={{width:"100%",aspectRatio:"1",objectFit:"cover",borderRadius:8}} alt=""/>
+          {p.photoType && <span style={{position:"absolute",top:4,right:4,padding:"1px 5px",borderRadius:5,fontSize:8,fontWeight:700,background:p.photoType==="before"?"#fff3cd":p.photoType==="after"?"#d8f3dc":"rgba(255,255,255,0.9)",color:p.photoType==="before"?C.org:p.photoType==="after"?C.grn:C.txt}}>{p.photoType==="before"?"לפני":p.photoType==="after"?"אחרי":""}</span>}
+          {p.siteId && <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"3px 5px",background:"rgba(0,0,0,0.6)",color:"#fff",fontSize:9,borderRadius:"0 0 8px 8px",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{sn(p.siteId)}</div>}
+        </div>)}
+      </div>
+    </div>;
+  })();
+
+  // ═══ DAILY ═══
+  const dailyView=(()=>{
+    const dy=selISO;const assigns=data.weekAssign?.[dy]||[];const tasks=data.dailyTasks?.[dy]||[];
+    const dayR=(data.receipts||[]).filter(r=>r.date===dy);const dayE=(data.expenses||[]).filter(r=>r.date===dy);
+    const dayTrips=(data.trips?.[dy]||[]);
+    const dayMeetings=(data.meetings||[]).filter(m=>m.date===dy);
+    const daySubs=(data.subContracts||[]).filter(s=>(s.dates||[]).includes(dy));
+    const presentCount=Object.values(data.attendance?.[dy]||{}).filter(v=>v?.present).length;
+    const openTasks=tasks.filter(t=>t.status!=="done").length;
+    const doneTasks=tasks.filter(t=>t.status==="done").length;
+    const isToday=dy===todayISO;
+    const heb=getHebrewDate(selDay);
+    const holiday=getHoliday(selDay);
+    const tabs=[{key:"tasks",icon:"✅",label:"משימות",count:openTasks},{key:"workers",icon:"🧑",label:"נוכחות",count:presentCount},{key:"trips",icon:"🚗",label:"נסיעות",count:dayTrips.length},{key:"meetings",icon:"📅",label:"פגישות",count:dayMeetings.filter(m=>!m.done).length},{key:"summary",icon:"📊",label:"סיכום",count:0}];
+
+    return <div style={{padding:16}}>
+      {/* Date navigation */}
+      <div style={{background:isToday?C.grnP:C.wht,borderRadius:14,border:"2px solid "+(isToday?C.grn:C.bdr),padding:"12px 14px",marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <button onClick={()=>{const d=new Date(selDay);d.setDate(d.getDate()+1);setSelDay(d);}} style={{background:"rgba(0,0,0,0.05)",border:"none",fontSize:22,cursor:"pointer",color:C.txt,width:36,height:36,borderRadius:"50%",fontFamily:"inherit",fontWeight:700}}>{"‹"}</button>
+          <div style={{textAlign:"center",flex:1}}>
+            <div style={{fontSize:18,fontWeight:700,color:isToday?C.grn:C.txt}}>{isToday?"היום":fmtHeb(selDay)}</div>
+            <div style={{fontSize:12,color:C.txtM,display:"flex",justifyContent:"center",gap:8,marginTop:2}}>
+              <span>{"יום "+DAYNAMES[selDay.getDay()]}</span>
+              {heb && <span>{"· "+heb.full}</span>}
+            </div>
+            {holiday && <div style={{marginTop:4,padding:"3px 10px",background:C.org,color:"#fff",borderRadius:12,fontSize:11,fontWeight:700,display:"inline-block"}}>{"🕎 "+holiday}</div>}
+          </div>
+          <button onClick={()=>{const d=new Date(selDay);d.setDate(d.getDate()-1);setSelDay(d);}} style={{background:"rgba(0,0,0,0.05)",border:"none",fontSize:22,cursor:"pointer",color:C.txt,width:36,height:36,borderRadius:"50%",fontFamily:"inherit",fontWeight:700}}>{"›"}</button>
+        </div>
+        {!isToday && <div style={{textAlign:"center",marginTop:8}}>
+          <button onClick={()=>setSelDay(new Date())} style={{padding:"4px 12px",borderRadius:14,border:"1px solid "+C.grn,background:C.grnP,color:C.grn,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"חזור להיום"}</button>
+        </div>}
+      </div>
+
+      {/* Day overview - quick stats grid */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:6,marginBottom:12}}>
+        <div onClick={()=>setDailyTab("tasks")} style={{background:openTasks>0?"#fff3cd":C.wht,borderRadius:10,border:"1px solid "+(openTasks>0?C.org:C.bdr),padding:"10px 4px",textAlign:"center",cursor:"pointer"}}>
+          <div style={{fontSize:18}}>{"✅"}</div>
+          <div style={{fontSize:18,fontWeight:700,color:openTasks>0?C.org:C.txtM}}>{doneTasks+"/"+tasks.length}</div>
+          <div style={{fontSize:9,color:C.txtM}}>{"משימות"}</div>
+        </div>
+        <div onClick={()=>setDailyTab("workers")} style={{background:presentCount>0?C.grnP:C.wht,borderRadius:10,border:"1px solid "+(presentCount>0?C.grn:C.bdr),padding:"10px 4px",textAlign:"center",cursor:"pointer"}}>
+          <div style={{fontSize:18}}>{"🧑"}</div>
+          <div style={{fontSize:18,fontWeight:700,color:presentCount>0?C.grn:C.txtM}}>{presentCount}</div>
+          <div style={{fontSize:9,color:C.txtM}}>{"נוכחים"}</div>
+        </div>
+        <div onClick={()=>setDailyTab("meetings")} style={{background:dayMeetings.length>0?C.purpB:C.wht,borderRadius:10,border:"1px solid "+(dayMeetings.length>0?C.purp:C.bdr),padding:"10px 4px",textAlign:"center",cursor:"pointer"}}>
+          <div style={{fontSize:18}}>{"📅"}</div>
+          <div style={{fontSize:18,fontWeight:700,color:dayMeetings.length>0?C.purp:C.txtM}}>{dayMeetings.length}</div>
+          <div style={{fontSize:9,color:C.txtM}}>{"פגישות"}</div>
+        </div>
+        <div onClick={()=>setDailyTab("trips")} style={{background:dayTrips.length>0?C.purpB:C.wht,borderRadius:10,border:"1px solid "+(dayTrips.length>0?C.purp:C.bdr),padding:"10px 4px",textAlign:"center",cursor:"pointer"}}>
+          <div style={{fontSize:18}}>{"🚗"}</div>
+          <div style={{fontSize:18,fontWeight:700,color:dayTrips.length>0?C.purp:C.txtM}}>{dayTrips.length}</div>
+          <div style={{fontSize:9,color:C.txtM}}>{"נסיעות"}</div>
+        </div>
+      </div>
+
+      {/* At-a-glance: today's sites + meetings preview */}
+      {(assigns.length>0 || dayMeetings.length>0 || daySubs.length>0) && <div style={{background:C.wht,borderRadius:12,border:"1px solid "+C.bdr,padding:"10px 12px",marginBottom:12}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.txtM,marginBottom:6}}>{"📋 סדר היום:"}</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+          {assigns.map(a=><span key={a.siteId} style={{padding:"4px 10px",borderRadius:14,fontSize:12,fontWeight:600,background:a.type==="m"?C.orgB:C.grnP,color:a.type==="m"?C.org:C.grn}}>{(a.type==="m"?"🔧 ":"🌱 ")+sn(a.siteId)}</span>)}
+          {daySubs.map(s=><span key={s.id} style={{padding:"4px 10px",borderRadius:14,fontSize:12,fontWeight:600,background:C.bluB,color:C.blu}}>{"🔨 "+s.name}</span>)}
+          {dayMeetings.map(m=><span key={m.id} style={{padding:"4px 10px",borderRadius:14,fontSize:12,fontWeight:600,background:C.purpB,color:C.purp}}>{"📅 "+(m.time||"")+" "+meetingLabel(m)}</span>)}
+        </div>
+      </div>}
+
+      {/* Quick action buttons */}
+      <div style={{display:"flex",gap:6,marginBottom:12}}>
+        <button onClick={()=>{setExpImg(null);setExpStep(0);setForm({});setModal("quickPhoto");}} style={{flex:1,padding:12,borderRadius:12,border:"none",background:C.hdr,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
+          <span style={{fontSize:18}}>📸</span>{"צלם"}
+        </button>
+        <button onClick={()=>{setForm({notes:"",siteId:"",type:"",image:"",taskDate:selISO});setModal("addTask");}} style={{flex:1,padding:12,borderRadius:12,border:"none",background:C.grn,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
+          <span style={{fontSize:18}}>➕</span>{"משימה"}
+        </button>
+        <button onClick={()=>{setForm({tripDate:selISO,tripPlace:"",tripNote:""});setModal("addTrip");}} style={{flex:1,padding:12,borderRadius:12,border:"none",background:C.purp,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
+          <span style={{fontSize:18}}>🚗</span>{"נסיעה"}
+        </button>
+        <button onClick={()=>{setForm({meetingSiteId:"",meetingDate:selISO,meetingTime:"",meetingNotes:"",meetingCustomPlace:""});setModal("addMeeting");}} style={{flex:1,padding:12,borderRadius:12,border:"none",background:C.purp,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
+          <span style={{fontSize:18}}>📅</span>{"פגישה"}
+        </button>
+      </div>
+
+      <div style={{display:"flex",background:C.cardA,borderRadius:12,padding:3,marginBottom:14,gap:2,overflow:"auto"}}>{tabs.map(t=><button key={t.key} onClick={()=>setDailyTab(t.key)} style={{flex:"0 0 auto",minWidth:60,padding:"9px 8px",borderRadius:10,border:"none",cursor:"pointer",fontSize:11,fontWeight:dailyTab===t.key?700:400,background:dailyTab===t.key?C.grn:"transparent",color:dailyTab===t.key?"#fff":C.txtM,fontFamily:"inherit",whiteSpace:"nowrap",position:"relative"}}>{t.icon} {t.label}{t.count>0 && <span style={{marginInlineStart:4,padding:"1px 5px",borderRadius:8,fontSize:9,background:dailyTab===t.key?"rgba(255,255,255,0.3)":C.grn,color:"#fff",fontWeight:700}}>{t.count}</span>}</button>)}</div>
+
+      {/* WORKERS */}
+      {dailyTab==="workers"&&<div>
+        {(data.workers||[]).filter(w=>w.type!=="sub").map(w=>{const a=getAtt(dy,w.id);return <div key={w.id} style={{background:a.present?C.grnP:C.wht,borderRadius:14,border:"2px solid "+(a.present?C.grn:C.bdr),padding:"12px 14px",marginBottom:10}}>
+          <div onClick={()=>togAtt(dy,w.id)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:a.present?8:0}}>
+            <span style={{fontSize:28}}>{a.present?"✅":"⬜"}</span>
+            <span style={{fontSize:18,fontWeight:700}}>{w.name}</span>
+          </div>
+          {a.present&&<div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+            <input type="time" value={a.endTime||dEnd()} onChange={e=>upAtt(dy,w.id,"endTime",e.target.value)} style={{padding:"6px",borderRadius:8,border:"1px solid "+C.bdr,fontSize:14,fontFamily:"inherit",width:85,textAlign:"center"}}/>
+            <input type="time" value={a.startTime||dStart()} onChange={e=>upAtt(dy,w.id,"startTime",e.target.value)} style={{padding:"6px",borderRadius:8,border:"1px solid "+C.bdr,fontSize:14,fontFamily:"inherit",width:85,textAlign:"center"}}/>
+            <select value={a.siteId||""} onChange={e=>upAtt(dy,w.id,"siteId",e.target.value)} style={{flex:1,padding:"6px",borderRadius:8,border:"1px solid "+C.bdr,fontSize:12,fontFamily:"inherit",direction:"rtl",minWidth:80}}>
+              <option value="">{"-- אתר --"}</option><option value="__add__">{"➕ הוסף אתר/פרויקט"}</option>{allSites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>}
+        </div>;})}
+      </div>}
+
+      {/* TASKS */}
+      {dailyTab==="tasks"&&<div>
+        <button onClick={()=>{setForm({notes:"",siteId:"",type:"",image:""});setModal("addTask");}} style={{width:"100%",padding:"16px",borderRadius:12,border:"none",background:C.grn,color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>{"+ משימה חדשה"}</button>
+
+        {(()=>{const todaySubs=(data.subContracts||[]).filter(s=>(s.dates||[]).includes(dy));if(!todaySubs.length)return null;return <div style={{background:C.bluB,borderRadius:14,border:"2px solid "+C.blu,padding:12,marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.blu,marginBottom:8}}>{"🔨 קבלני משנה היום"}</div>
+          {todaySubs.map(s=>{const isPlanned=s.status!=="done";return <div key={s.id} style={{background:"#fff",borderRadius:10,padding:"10px 12px",marginBottom:6,border:"1px solid "+(isPlanned?C.bdr:C.grn)}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:isPlanned?C.cardA:C.grnP,color:isPlanned?C.txtM:C.grn}}>{isPlanned?"מתוכנן":"✓ בוצע"}</span>
+              <span style={{fontSize:16,fontWeight:700}}>{s.name}</span>
+            </div>
+            <div style={{fontSize:11,color:C.txtM,lineHeight:1.7}}>
+              {s.siteId && <div>{"📍 "+sn(s.siteId)}</div>}
+              {!isPlanned && <React.Fragment>
+                <div>{"👷 "+(s.workerCount||1)+" עובדים · 🕒 "+(s.hoursFrom||"?")+"-"+(s.hoursTo||"?")}</div>
+                {s.notes && <div style={{padding:"4px 8px",background:C.cardA,borderRadius:6,marginTop:4}}>{"📝 "+s.notes}</div>}
+              </React.Fragment>}
+            </div>
+            {isPlanned && <button onClick={()=>{setForm({subId:s.id,subWorkerCount:1,subFrom:dStart(),subTo:dEnd(),subNotes:""});setModal("completeSub");}} style={{marginTop:8,width:"100%",padding:"8px",borderRadius:8,border:"1px solid "+C.grn,background:C.grnP,color:C.grn,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"✓ מילוי פרטי ביצוע"}</button>}
+            <button onClick={()=>{setForm({subId:s.id,subDate:dy});setModal("confirmDelSub");}} style={{marginTop:6,width:"100%",padding:"7px",borderRadius:8,border:"1px solid "+C.red,background:"#fff",color:C.red,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"🗑 מחק"}</button>
+          </div>;})}
+        </div>;})()}
+
+        {/* Free tasks */}
+        {(()=>{const free=tasks.filter(t=>!t.siteId);if(!free.length)return null;return <div style={{background:C.wht,borderRadius:14,border:"1px solid "+C.bdr,padding:14,marginBottom:10}}>
+          <div style={{fontWeight:700,fontSize:15,marginBottom:8}}>{"📌 משימות כלליות"}</div>
+          {free.map(t=><div key={t.id} style={{padding:"10px 14px",borderRadius:10,marginBottom:6,background:t.status==="done"?C.grnP:C.cardA,border:"1px solid "+(t.status==="done"?C.grnL:C.bdr)}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <span onClick={()=>togTask(dy,t.id)} style={{fontSize:22,cursor:"pointer"}}>{t.status==="done"?"✅":"⬜"}</span>
+                <span onClick={()=>{setForm({editTaskId:t.id,editTaskDate:dy,notes:t.notes,siteId:t.siteId||"",image:t.image||""});setModal("editTask");}} style={{fontSize:14,color:C.blu,cursor:"pointer"}}>{"✏️"}</span>
+                <span onClick={()=>delTask(dy,t.id)} style={{fontSize:14,color:C.red,cursor:"pointer"}}>🗑</span>
+              </div>
+              <span onClick={()=>togTask(dy,t.id)} style={{fontSize:14,fontWeight:500,textDecoration:t.status==="done"?"line-through":"none",textAlign:"right",flex:1,cursor:"pointer"}}>{t.notes}</span>
+            </div>
+            {t.image && <img src={t.image} onClick={e=>{e.stopPropagation();setZoomImg(t.image);}} style={{width:"100%",borderRadius:8,marginTop:8,maxHeight:200,objectFit:"cover",cursor:"zoom-in"}} alt=""/>}
+          </div>)}
+        </div>;})()}
+
+        {assigns.length===0&&tasks.filter(t=>!t.siteId).length===0&&<div style={{background:C.wht,borderRadius:14,padding:20,textAlign:"center",border:"1px solid "+C.bdr}}><span style={{color:C.txtL,fontSize:14}}>{"אין משימות ליום"}</span></div>}
+
+        {assigns.map(a=>{const st=tasks.filter(t=>t.siteId===a.siteId);const ic=a.type==="m"?"🔧":"🌱";return <div key={a.siteId} style={{background:C.wht,borderRadius:14,border:"1px solid "+C.bdr,padding:14,marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <button onClick={()=>{setForm({siteId:a.siteId,type:a.type,notes:""});setModal("addTask");}} style={{background:C.grn,border:"none",color:"#fff",cursor:"pointer",fontSize:16,fontFamily:"inherit",fontWeight:700,padding:"6px 14px",borderRadius:10,lineHeight:1}}>+</button>
+            <span onClick={()=>{setForm({siteId:a.siteId});setSiteDetailTab("overview");setModal("siteDetail");}} style={{fontWeight:700,fontSize:16,cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"}}>{ic+" "+sn(a.siteId)}</span>
+          </div>
+          {/* Next visit notes - if any */}
+          {(data.nextVisitNotes?.[a.siteId]||[]).filter(n=>!n.done).length>0 && <div style={{background:C.purpB,borderRadius:8,padding:"8px 10px",marginBottom:8,border:"1px solid "+C.purp}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.purp,marginBottom:4}}>{"💡 הערות לטיפול"}</div>
+            {(data.nextVisitNotes[a.siteId]||[]).filter(n=>!n.done).map(n=><div key={n.id} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,padding:"3px 0"}}>
+              <span onClick={()=>togNextVisit(a.siteId,n.id)} style={{cursor:"pointer"}}>⬜</span>
+              <span style={{flex:1,textAlign:"right"}}>{n.text}</span>
+            </div>)}
+          </div>}
+          {st.length===0&&<p style={{textAlign:"center",color:C.txtL}}>{"אין משימות"}</p>}
+          {st.map(t=><div key={t.id} style={{padding:"10px 14px",borderRadius:10,marginBottom:6,background:t.status==="done"?C.grnP:C.cardA,border:"1px solid "+(t.status==="done"?C.grnL:C.bdr)}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <span onClick={()=>togTask(dy,t.id)} style={{fontSize:22,cursor:"pointer"}}>{t.status==="done"?"✅":"⬜"}</span>
+                <span onClick={()=>{setForm({editTaskId:t.id,editTaskDate:dy,notes:t.notes,siteId:t.siteId||"",image:t.image||""});setModal("editTask");}} style={{fontSize:14,color:C.blu,cursor:"pointer"}}>{"✏️"}</span>
+                <span onClick={()=>delTask(dy,t.id)} style={{fontSize:14,color:C.red,cursor:"pointer"}}>🗑</span>
+              </div>
+              <span onClick={()=>togTask(dy,t.id)} style={{fontSize:14,fontWeight:500,textDecoration:t.status==="done"?"line-through":"none",textAlign:"right",flex:1,cursor:"pointer"}}>{t.notes}</span>
+            </div>
+            {t.image && <img src={t.image} onClick={e=>{e.stopPropagation();setZoomImg(t.image);}} style={{width:"100%",borderRadius:8,marginTop:8,maxHeight:200,objectFit:"cover",cursor:"zoom-in"}} alt=""/>}
+            {t.status==="done" && !t.billable && <button onClick={()=>{setForm({taskDay:dy,taskId:t.id,extras:""});setModal("billingForm");}} style={{marginTop:8,width:"100%",padding:"8px",borderRadius:8,border:"1px solid "+C.org,background:"#fff3cd",color:C.org,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"💰 שלח לחיוב"}</button>}
+            {t.billable==="ready" && <div style={{marginTop:8,padding:"8px 10px",borderRadius:8,background:"#fff3cd",border:"1px solid "+C.org,fontSize:12}}>
+              <div style={{fontWeight:700,color:C.org,marginBottom:4}}>{"💰 מוכן לחיוב"}</div>
+              {t.billingExtras && <div style={{fontSize:11,color:C.txtM,marginBottom:4}}>{"תוספות: "+t.billingExtras}</div>}
+              <button onClick={()=>markInvoiced(dy,t.id)} style={{padding:"4px 10px",borderRadius:6,border:"none",background:C.org,color:"#fff",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"סמן כחויב ✓"}</button>
+            </div>}
+            {t.billable==="invoiced" && <div style={{marginTop:6,fontSize:11,color:C.grn,fontWeight:600}}>{"✓ חויב"}</div>}
+          </div>)}
+        </div>;})}
+      </div>}
+
+      {/* TRIPS */}
+      {dailyTab==="trips"&&<div>
+        <button onClick={()=>{setForm({tripDate:selISO,tripPlace:"",tripNote:""});setModal("addTrip");}} style={{width:"100%",padding:14,borderRadius:12,border:"none",background:C.purp,color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:10}}>{"🚗 הוסף נסיעה"}</button>
+        {dayTrips.length===0 && <div style={{background:C.wht,borderRadius:14,padding:20,textAlign:"center",border:"1px solid "+C.bdr}}><span style={{color:C.txtL}}>{"אין נסיעות"}</span></div>}
+        {dayTrips.map(t=><div key={t.id} style={{background:C.wht,borderRadius:14,border:"2px solid "+C.purp,padding:"12px 14px",marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+            <span onClick={()=>delTrip(dy,t.id)} style={{fontSize:14,color:C.red,cursor:"pointer"}}>🗑</span>
+            <div style={{flex:1,textAlign:"right"}}>
+              <div style={{fontSize:16,fontWeight:700,marginBottom:t.note?4:0}}>{"🚗 "+t.place}</div>
+              {t.note&&<div style={{fontSize:13,color:C.txtM,padding:"6px 10px",background:C.purpB,borderRadius:6}}>{t.note}</div>}
+            </div>
+          </div>
+        </div>)}
+      </div>}
+
+      {/* MEETINGS */}
+      {dailyTab==="meetings"&&<div>
+        <button onClick={()=>{setForm({meetingSiteId:"",meetingDate:selISO,meetingTime:"",meetingNotes:""});setModal("addMeeting");}} style={{width:"100%",padding:14,borderRadius:12,border:"none",background:C.purp,color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:10}}>{"📅 הוסף פגישה"}</button>
+        {dayMeetings.length===0 && <div style={{background:C.wht,borderRadius:14,padding:20,textAlign:"center",border:"1px solid "+C.bdr}}><span style={{color:C.txtL}}>{"אין פגישות"}</span></div>}
+        {dayMeetings.map(m=><div key={m.id} style={{background:m.done?C.grnP:C.wht,borderRadius:14,border:"2px solid "+(m.done?C.grn:C.purp),padding:"12px 14px",marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              <span onClick={()=>togMeeting(m.id)} style={{fontSize:22,cursor:"pointer"}}>{m.done?"✅":"⬜"}</span>
+              <span onClick={()=>delMeeting(m.id)} style={{fontSize:14,color:C.red,cursor:"pointer"}}>🗑</span>
+            </div>
+            <div style={{flex:1,textAlign:"right"}}>
+              <div style={{fontSize:16,fontWeight:700,marginBottom:4}}>{"📅 "+(m.time||"")+" "+meetingLabel(m)}</div>
+              {m.notes&&<div style={{fontSize:13,color:C.txtM,padding:"6px 10px",background:C.purpB,borderRadius:6}}>{m.notes}</div>}
+            </div>
+          </div>
+        </div>)}
+      </div>}
+
+      {/* SUMMARY */}
+      {dailyTab==="summary"&&<div style={{background:C.wht,borderRadius:14,border:"1px solid "+C.bdr,padding:16}}>
+        {[["נוכחים",Object.values(data.attendance?.[dy]||{}).filter(v=>v?.present).length],["אתרים",assigns.length],["משימות",tasks.filter(t=>t.status==="done").length+"/"+tasks.length],["נסיעות",dayTrips.length],["פגישות",dayMeetings.length],["הוצאות","₪"+dayE.reduce((s,r)=>s+(+r.amount||0),0)],["קבלות","₪"+dayR.reduce((s,r)=>s+(+r.amount||0),0)]].map(([l,v],i,arr)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:i<arr.length-1?"1px solid "+C.bdr:"none"}}><span style={{fontWeight:700,fontSize:16}}>{v}</span><span style={{color:C.txtM}}>{l}</span></div>)}
+      </div>}
+    </div>;
+  })();
+
+  // ═══ WEEKLY ═══
+  const weeklyView=(()=>{
+    const wISOs=week.map(d=>iso(d));const wKey=wISOs[0]+"-wk";const wNote=data.weekNotes?.[wKey]||"";
+    const TH=()=><tr style={{borderBottom:"2px solid "+C.bdr}}><td></td>{week.map((d,i)=>{const t=iso(d)===todayISO;return <th key={i} style={{padding:"4px 2px",textAlign:"center",fontSize:10,color:t?C.grn:C.txtL,fontWeight:t?700:500,background:t?C.grnP:"transparent",borderRadius:4}}><div>{DAYS[i]}</div><div>{fmtD(d)}</div></th>;})}<th></th></tr>;
+    const Cell=({sid,type,dy})=>{const on=isAsgn(dy,sid);return <td onClick={()=>togWA(dy,sid,type)} style={{textAlign:"center",cursor:"pointer",padding:"7px 1px",background:on?C.grnP:"transparent",borderRadius:4}}><span style={{fontSize:15}}>{on?"✅":"⬜"}</span></td>;};
+    return <div style={{padding:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <button onClick={()=>{const d=new Date(weekBase);d.setDate(d.getDate()+7);setWeekBase(d);}} style={{background:"none",border:"none",fontSize:28,cursor:"pointer",color:C.txt,padding:8}}>{"‹"}</button>
+        <div style={{textAlign:"center"}}><div style={{fontSize:18,fontWeight:700}}>{"📅 שיבוץ שבועי"}</div><div style={{fontSize:13,color:C.txtM}}>{wkLabel}</div></div>
+        <button onClick={()=>{const d=new Date(weekBase);d.setDate(d.getDate()-7);setWeekBase(d);}} style={{background:"none",border:"none",fontSize:28,cursor:"pointer",color:C.txt,padding:8}}>{"›"}</button>
+      </div>
+      {(data.maintenanceSites||[]).length>0&&<div style={{background:C.card,borderRadius:14,border:"1px solid "+C.bdr,padding:10,marginBottom:12,overflowX:"auto"}}><div style={{fontSize:13,fontWeight:700,textAlign:"center",marginBottom:6}}>{"🔧 תחזוקות"}</div><table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}><thead><TH/></thead><tbody>{data.maintenanceSites.map(s=><tr key={s.id} style={{borderBottom:"1px solid "+C.bdr+"40"}}><td style={{fontSize:8,color:C.org,textAlign:"center"}}>{s.frequency}</td>{wISOs.map((d,i)=><Cell key={i} sid={s.id} type="m" dy={d}/>)}<td style={{padding:"4px 6px",textAlign:"right",fontWeight:500,fontSize:11}}>{s.name}</td></tr>)}</tbody></table></div>}
+      {(data.devSites||[]).length>0&&<div style={{background:C.card,borderRadius:14,border:"1px solid "+C.bdr,padding:10,marginBottom:12,overflowX:"auto"}}><div style={{fontSize:13,fontWeight:700,textAlign:"center",marginBottom:6}}>{"🌱 פרויקטים"}</div><table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}><thead><TH/></thead><tbody>{data.devSites.map(s=><tr key={s.id} style={{borderBottom:"1px solid "+C.bdr+"40"}}><td style={{fontSize:8,color:C.blu,textAlign:"center"}}>{s.deadline||""}</td>{wISOs.map((d,i)=><Cell key={i} sid={s.id} type="d" dy={d}/>)}<td style={{padding:"4px 6px",textAlign:"right",fontWeight:500,fontSize:11}}>{s.name}</td></tr>)}</tbody></table></div>}
+      <textarea value={wNote} onChange={e=>{const v=e.target.value;up(d=>{if(!d.weekNotes)d.weekNotes={};d.weekNotes[wKey]=v;});}} placeholder={"📝 הערות..."} style={{width:"100%",minHeight:60,padding:10,borderRadius:8,border:"1px solid "+C.bdr,fontSize:14,fontFamily:"inherit",resize:"vertical",boxSizing:"border-box",direction:"rtl",marginBottom:12}}/>
+    </div>;
+  })();
+
+  // SETTINGS
+  const settingsView=<div style={{padding:16}}>
+    {/* Default work hours */}
+    <div style={{background:C.card,borderRadius:14,border:"1px solid "+C.bdr,padding:16,marginBottom:12}}>
+      <div style={{fontSize:15,fontWeight:700,textAlign:"center",marginBottom:10}}>{"⏰ שעות עבודה ברירת מחדל"}</div>
+      <div style={{fontSize:11,color:C.txtM,textAlign:"center",marginBottom:10}}>{"שעות אלו ייקבעו אוטומטית כשמסמנים עובד כנוכח"}</div>
+      <div style={{display:"flex",gap:8,alignItems:"center",justifyContent:"center"}}>
+        <div style={{textAlign:"center"}}>
+          <label style={{fontSize:11,color:C.txtM,display:"block",marginBottom:3}}>{"עד"}</label>
+          <input type="time" value={data.defaultEndTime||"16:00"} onChange={e=>up(d=>{d.defaultEndTime=e.target.value;})} style={{padding:"8px",borderRadius:8,border:"1px solid "+C.bdr,fontSize:14,fontFamily:"inherit",width:100,textAlign:"center"}}/>
+        </div>
+        <div style={{textAlign:"center"}}>
+          <label style={{fontSize:11,color:C.txtM,display:"block",marginBottom:3}}>{"משעה"}</label>
+          <input type="time" value={data.defaultStartTime||"07:30"} onChange={e=>up(d=>{d.defaultStartTime=e.target.value;})} style={{padding:"8px",borderRadius:8,border:"1px solid "+C.bdr,fontSize:14,fontFamily:"inherit",width:100,textAlign:"center"}}/>
+        </div>
+      </div>
+    </div>
+    <div style={{background:C.card,borderRadius:14,border:"1px solid "+C.bdr,padding:16,marginBottom:12}}>
+      <div style={{fontSize:15,fontWeight:700,textAlign:"center",marginBottom:10}}>{"🧑 עובדים וקבלני משנה"}</div>
+      {(data.workers||[]).map(w=><div key={w.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",borderRadius:8,background:C.cardA,marginBottom:6,border:"1px dashed "+C.bdr}}>
+        <span onClick={()=>up(d=>{d.workers=d.workers.filter(x=>x.id!==w.id);})} style={{cursor:"pointer",color:C.red,fontSize:16}}>{"✕"}</span>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontWeight:500}}>{w.name}</span>
+          {w.type==="sub"?<span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:600,background:C.bluB,color:C.blu}}>{"קבלן"}</span>:<span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:600,background:C.grnP,color:C.grn}}>{"עובד"}</span>}
+        </div>
+      </div>)}
+      <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+        <button onClick={()=>{if(!sNW.trim())return;up(d=>{d.workers=[...(d.workers||[]),{id:uid(),name:sNW.trim(),type:form.workerType||"worker"}];});setSNW("");}} style={{padding:"8px 12px",borderRadius:8,border:"1px solid "+C.bdr,background:C.wht,cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>+</button>
+        <select value={form.workerType||"worker"} onChange={e=>setForm(p=>({...p,workerType:e.target.value}))} style={{padding:8,borderRadius:8,border:"1px solid "+C.bdr,fontSize:11,fontFamily:"inherit",direction:"rtl"}}>
+          <option value="worker">{"עובד"}</option><option value="sub">{"קבלן משנה"}</option>
+        </select>
+        <input value={sNW} onChange={e=>setSNW(e.target.value)} placeholder={"שם"} style={{flex:1,minWidth:80,padding:"8px 12px",borderRadius:8,border:"1px solid "+C.bdr,fontSize:14,fontFamily:"inherit",direction:"rtl",outline:"none",boxSizing:"border-box"}}/>
+      </div>
+    </div>
+    <div style={{background:C.card,borderRadius:14,border:"1px solid "+C.bdr,padding:16,marginBottom:12}}>
+      <div style={{fontSize:15,fontWeight:700,textAlign:"center",marginBottom:10}}>{"🔧 תחזוקות"}</div>
+      {(data.maintenanceSites||[]).map(s=><div key={s.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",borderRadius:8,background:C.cardA,marginBottom:6}}><div style={{display:"flex",alignItems:"center",gap:6}}><span onClick={()=>up(d=>{d.maintenanceSites=d.maintenanceSites.filter(x=>x.id!==s.id);})} style={{cursor:"pointer",color:C.red,fontSize:16}}>✕</span><span style={{padding:"2px 6px",borderRadius:10,fontSize:9,background:C.orgB,color:C.org}}>{s.frequency}</span></div><span style={{fontWeight:500}}>{s.name}</span></div>)}
+      <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+        <button onClick={()=>{if(!sNM.trim())return;up(d=>{d.maintenanceSites=[...(d.maintenanceSites||[]),{id:uid(),name:sNM.trim(),frequency:sNMF}];});setSNM("");}} style={{padding:"8px 12px",borderRadius:8,border:"1px solid "+C.bdr,background:C.wht,cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>+</button>
+        <select value={sNMF} onChange={e=>setSNMF(e.target.value)} style={{padding:8,borderRadius:8,border:"1px solid "+C.bdr,fontSize:11,fontFamily:"inherit",direction:"rtl"}}><option>{"2 פעמים בשבוע"}</option><option>{"כל שבוע"}</option><option>{"דו שבועי"}</option><option>{"פעמיים בחודש"}</option><option>{"פעם בחודש"}</option></select>
+        <input value={sNM} onChange={e=>setSNM(e.target.value)} placeholder={"שם אתר"} style={{flex:1,minWidth:80,padding:"8px 12px",borderRadius:8,border:"1px solid "+C.bdr,fontSize:14,fontFamily:"inherit",direction:"rtl",outline:"none",boxSizing:"border-box"}}/>
+      </div>
+    </div>
+    <div style={{background:C.card,borderRadius:14,border:"1px solid "+C.bdr,padding:16,marginBottom:12}}>
+      <div style={{fontSize:15,fontWeight:700,textAlign:"center",marginBottom:10}}>{"🌱 פרויקטים"}</div>
+      {(data.devSites||[]).map(s=><div key={s.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",borderRadius:8,background:C.cardA,marginBottom:6}}><div style={{display:"flex",alignItems:"center",gap:6}}><span onClick={()=>up(d=>{d.devSites=d.devSites.filter(x=>x.id!==s.id);})} style={{cursor:"pointer",color:C.red,fontSize:16}}>✕</span>{s.deadline&&<span style={{padding:"2px 6px",borderRadius:10,fontSize:9,background:C.bluB,color:C.blu}}>{s.deadline}</span>}</div><span style={{fontWeight:500}}>{s.name}</span></div>)}
+      <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+        <button onClick={addDev} style={{padding:"8px 12px",borderRadius:8,border:"1px solid "+C.bdr,background:C.wht,cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>+</button>
+        <input type="date" value={sNDD} onChange={e=>setSNDD(e.target.value)} style={{padding:8,borderRadius:8,border:"1px solid "+C.bdr,fontSize:11,fontFamily:"inherit"}}/>
+        <input value={sND} onChange={e=>setSND(e.target.value)} placeholder={"שם פרויקט"} style={{flex:1,minWidth:80,padding:"8px 12px",borderRadius:8,border:"1px solid "+C.bdr,fontSize:14,fontFamily:"inherit",direction:"rtl",outline:"none",boxSizing:"border-box"}}/>
+      </div>
+    </div>
+    <div style={{background:C.card,borderRadius:14,border:"1px solid "+C.bdr,padding:16,marginBottom:12}}>
+      <div style={{fontSize:15,fontWeight:700,textAlign:"center",marginBottom:6}}>{"📚 מאגר ציוד וצמחייה"}</div>
+      <div style={{fontSize:11,color:C.txtM,textAlign:"center",marginBottom:12}}>{"פריטים שתשתמש בהם בהזמנות. בחר אותם בלחיצה אחת בהזמנה משולבת."}</div>
+      {INV_CATS.map(cat=>{
+        const catItems=(data.inventory||[]).filter(it=>it.category===cat.id);
+        return <div key={cat.id} style={{marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:6,color:C.grn,padding:"4px 8px",background:C.grnP,borderRadius:6,display:"flex",justifyContent:"space-between"}}>
+            <span>{catItems.length}</span>
+            <span>{cat.icon+" "+cat.label}</span>
+          </div>
+          {catItems.map(it=><div key={it.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",borderRadius:6,background:C.cardA,marginBottom:4,fontSize:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span onClick={()=>delInvItem(it.id)} style={{cursor:"pointer",color:C.red,fontSize:14}}>{"✕"}</span>
+              {it.defaultPrice>0 && <span style={{padding:"1px 6px",borderRadius:8,fontSize:10,background:"#fff3cd",color:C.org,fontWeight:600}}>{"₪"+it.defaultPrice}</span>}
+              {it.size && <span style={{padding:"1px 6px",borderRadius:8,fontSize:10,background:C.bluB,color:C.blu}}>{it.size}</span>}
+            </div>
+            <span style={{fontWeight:500}}>{it.name}</span>
+          </div>)}
+          {/* Add item to this category */}
+          <div style={{display:"flex",gap:4,marginTop:6}}>
+            <button onClick={()=>{setForm({invCategory:cat.id,invName:"",invSize:cat.sizes[0]||"",invPrice:""});setModal("addInvItem");}} style={{padding:"6px 12px",borderRadius:8,border:"1px dashed "+C.grn,background:C.grnP,color:C.grn,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>{"+ הוסף "+cat.label.slice(0,-1)}</button>
+          </div>
+        </div>;
+      })}
+    </div>
+    <div style={{textAlign:"center",marginTop:16}}><button onClick={()=>setModal("reset")} style={{padding:"10px 20px",borderRadius:10,border:"none",background:C.red,color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"🗑 איפוס"}</button></div>
+  </div>;
+
+  // ═══ MODALS ═══
+  const renderModal=()=>{
+    if(!modal)return null;
+    const ov={position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,backdropFilter:"blur(3px)",padding:16};
+    const bx={background:C.card,borderRadius:16,padding:22,width:400,maxWidth:"95vw",maxHeight:"85vh",overflowY:"auto"};
+    const close=()=>{setModal(null);setExpImg(null);setExpStep(0);};
+    const inp={width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid "+C.bdr,fontSize:14,fontFamily:"inherit",boxSizing:"border-box",direction:"rtl",outline:"none"};
+    const sb={width:"100%",padding:14,borderRadius:12,border:"none",background:C.grn,color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginTop:8};
+    const lb={fontSize:12,fontWeight:600,color:C.txtM,display:"block",marginBottom:4};
+
+    // ─── ADD TRIP ───
+    if(modal==="addTrip")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      <h3 style={{fontSize:18,color:C.purp,marginBottom:14,textAlign:"center"}}>{"🚗 הוספת נסיעה"}</h3>
+      <div style={{marginBottom:12}}>
+        <label style={lb}>{"לאיפה?"}</label>
+        <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:8}}>
+          {TRIP_PRESETS.map(p=><button key={p} onClick={()=>setForm({...form,tripPlace:p})} style={{width:"100%",padding:"14px",borderRadius:10,border:"2px solid "+(form.tripPlace===p?C.purp:C.bdr),background:form.tripPlace===p?C.purpB:"#fff",color:form.tripPlace===p?C.purp:C.txt,fontSize:16,fontWeight:form.tripPlace===p?700:500,cursor:"pointer",fontFamily:"inherit",textAlign:"right",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span>{form.tripPlace===p?"✓":""}</span>
+            <span>{"📍 "+p}</span>
+          </button>)}
+        </div>
+        <input value={(TRIP_PRESETS.includes(form.tripPlace)?"":form.tripPlace)||""} onChange={e=>setForm({...form,tripPlace:e.target.value})} placeholder={"או מקום אחר..."} style={inp}/>
+      </div>
+      <div style={{marginBottom:12}}>
+        <label style={lb}>{"מה הלכת להביא / הערה"}</label>
+        <textarea value={form.tripNote||""} onChange={e=>setForm({...form,tripNote:e.target.value})} placeholder={"לדוגמה: דשן, זרעים..."} style={{...inp,minHeight:70,resize:"vertical"}}/>
+      </div>
+      <div style={{marginBottom:14}}>
+        <label style={lb}>{"תאריך"}</label>
+        <input type="date" value={form.tripDate||selISO} onChange={e=>setForm({...form,tripDate:e.target.value})} style={inp}/>
+      </div>
+      <button onClick={saveTrip} style={{...sb,background:C.purp}}>{"שמור נסיעה"}</button>
+    </div></div>;
+
+    // ─── ADD MEETING ───
+    if(modal==="addMeeting")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      <h3 style={{fontSize:18,color:C.purp,marginBottom:14,textAlign:"center"}}>{"📅 פגישה חדשה"}</h3>
+      <div style={{marginBottom:12}}>
+        <label style={lb}>{"לקוח / אתר"}</label>
+        <select value={form.meetingSiteId||""} onChange={e=>setForm({...form,meetingSiteId:e.target.value})} style={inp}>
+          <option value="">{"-- בחר --"}</option>
+          {allSites.map(s=><option key={s.id} value={s.id}>{(s.type==="m"?"🔧 ":"🌱 ")+s.name}</option>)}
+          <option value="__custom__">{"📍 מקום אחר..."}</option>
+        </select>
+      </div>
+      {form.meetingSiteId==="__custom__" && <div style={{marginBottom:12}}>
+        <label style={lb}>{"שם / מקום הפגישה"}</label>
+        <input value={form.meetingCustomPlace||""} onChange={e=>setForm({...form,meetingCustomPlace:e.target.value})} placeholder={"לדוגמה: בנק, רואה חשבון, אחר..."} style={inp} autoFocus/>
+      </div>}
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <div style={{flex:1}}><label style={lb}>{"תאריך"}</label><input type="date" value={form.meetingDate||todayISO} onChange={e=>setForm({...form,meetingDate:e.target.value})} style={inp}/></div>
+        <div style={{flex:1}}><label style={lb}>{"שעה"}</label><input type="time" value={form.meetingTime||""} onChange={e=>setForm({...form,meetingTime:e.target.value})} style={inp}/></div>
+      </div>
+      <div style={{marginBottom:14}}>
+        <label style={lb}>{"הערות / נושאים"}</label>
+        <textarea value={form.meetingNotes||""} onChange={e=>setForm({...form,meetingNotes:e.target.value})} placeholder={"מה לדבר עליו..."} style={{...inp,minHeight:70,resize:"vertical"}}/>
+      </div>
+      <button onClick={saveMeeting} style={{...sb,background:C.purp}}>{"שמור פגישה"}</button>
+    </div></div>;
+
+    // ─── ADD PROJECT ───
+    if(modal==="addProject")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      <h3 style={{fontSize:18,color:C.blu,marginBottom:14,textAlign:"center"}}>{"🌱 פרויקט חדש"}</h3>
+      <div style={{marginBottom:10}}><label style={lb}>{"שם הפרויקט"}</label><input value={form.newProjectName||""} onChange={e=>setForm({...form,newProjectName:e.target.value})} style={inp} autoFocus/></div>
+      <div style={{marginBottom:10}}><label style={lb}>{"שם הלקוח"}</label><input value={form.newProjectClient||""} onChange={e=>setForm({...form,newProjectClient:e.target.value})} style={inp}/></div>
+      <div style={{marginBottom:10}}><label style={lb}>{"טלפון"}</label><input type="tel" value={form.newProjectPhone||""} onChange={e=>setForm({...form,newProjectPhone:e.target.value})} style={inp}/></div>
+      <div style={{marginBottom:10}}><label style={lb}>{"כתובת"}</label><input value={form.newProjectAddress||""} onChange={e=>setForm({...form,newProjectAddress:e.target.value})} style={inp}/></div>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <div style={{flex:1}}><label style={lb}>{"💼 הצעת מחיר (₪)"}</label><input type="number" value={form.newProjectPrice||""} onChange={e=>setForm({...form,newProjectPrice:e.target.value})} placeholder={"4500"} style={inp}/></div>
+        <div style={{flex:1}}><label style={lb}>{"📄 מס' הצעת מחיר"}</label><input value={form.newProjectQuoteNumber||""} onChange={e=>setForm({...form,newProjectQuoteNumber:e.target.value})} placeholder={"לדוגמה: 1024"} style={inp}/></div>
+      </div>
+      <div style={{marginBottom:14}}>
+        <label style={lb}>{"יעד סיום"}</label><input type="date" value={form.newProjectDeadline||""} onChange={e=>setForm({...form,newProjectDeadline:e.target.value})} style={inp}/>
+      </div>
+      <button onClick={()=>{if(!(form.newProjectName||"").trim())return;up(d=>{d.devSites=[...(d.devSites||[]),{id:uid(),name:form.newProjectName.trim(),deadline:form.newProjectDeadline||"",quotedPrice:+form.newProjectPrice||0,quoteNumber:form.newProjectQuoteNumber||"",client:form.newProjectClient||"",phone:form.newProjectPhone||"",address:form.newProjectAddress||"",status:"active"}];});setForm({});setModal(null);}} style={{...sb,background:C.blu}}>{"צור פרויקט"}</button>
+    </div></div>;
+
+    // ─── ADD INVENTORY ITEM ───
+    if(modal==="addInvItem"){
+      const cat=INV_CATS.find(c=>c.id===form.invCategory);
+      if(!cat)return null;
+      return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+        <h3 style={{fontSize:18,color:C.grn,marginBottom:14,textAlign:"center"}}>{cat.icon+" הוסף "+cat.label.slice(0,-1)}</h3>
+        <div style={{marginBottom:10}}><label style={lb}>{"שם הפריט"}</label><input value={form.invName||""} onChange={e=>setForm({...form,invName:e.target.value})} placeholder={cat.id==="trees"?"לדוגמה: זית סורי":cat.id==="shrubs"?"לדוגמה: לבנדר":"לדוגמה: פיטוניה"} style={inp} autoFocus/></div>
+        <div style={{marginBottom:10}}>
+          <label style={lb}>{"גודל"}</label>
+          <div style={{display:"grid",gridTemplateColumns:"repeat("+Math.min(cat.sizes.length,4)+", 1fr)",gap:6,marginBottom:6}}>
+            {cat.sizes.map(sz=><button key={sz} onClick={()=>setForm({...form,invSize:sz})} style={{padding:"8px 4px",borderRadius:8,border:"2px solid "+(form.invSize===sz?C.grn:C.bdr),background:form.invSize===sz?C.grnP:"#fff",color:form.invSize===sz?C.grn:C.txtM,fontSize:12,fontWeight:form.invSize===sz?700:500,cursor:"pointer",fontFamily:"inherit"}}>{sz}</button>)}
+          </div>
+          <input value={form.invSize||""} onChange={e=>setForm({...form,invSize:e.target.value})} placeholder={"או הקלד גודל אחר..."} style={{...inp,fontSize:12,padding:"6px 10px"}}/>
+        </div>
+        <div style={{marginBottom:14}}><label style={lb}>{"מחיר ברירת מחדל ₪ (אופציונלי)"}</label><input type="number" value={form.invPrice||""} onChange={e=>setForm({...form,invPrice:e.target.value})} placeholder={"לדוגמה: 25"} style={inp}/></div>
+        <button onClick={()=>{addInvItem();}} style={{...sb,background:C.grn}}>{"שמור והמשך"}</button>
+        <button onClick={close} style={{width:"100%",padding:10,borderRadius:10,border:"1px solid "+C.bdr,background:"#fff",color:C.txtM,fontSize:13,cursor:"pointer",fontFamily:"inherit",marginTop:6}}>{"סיים"}</button>
+      </div></div>;
+    }
+
+    // ─── ADD ORDER (single, to specific project) ───
+    if(modal==="addOrder")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      <h3 style={{fontSize:18,color:C.org,marginBottom:14,textAlign:"center"}}>{"📦 הזמנה חדשה"}</h3>
+      {!form.orderProjectId && <div style={{marginBottom:10}}><label style={lb}>{"לאיזה פרויקט?"}</label>
+        <select value={form.orderProjectId||""} onChange={e=>setForm({...form,orderProjectId:e.target.value})} style={inp} autoFocus>
+          <option value="">{"-- בחר פרויקט --"}</option>
+          {(data.devSites||[]).filter(p=>p.status!=="done").map(p=><option key={p.id} value={p.id}>{"🌱 "+p.name}</option>)}
+        </select>
+      </div>}
+      {form.orderProjectId && <div style={{marginBottom:10,padding:"8px 10px",background:C.bluB,borderRadius:8,fontSize:13,color:C.blu,fontWeight:600,textAlign:"center"}}>{"🌱 "+(allSites.find(s=>s.id===form.orderProjectId)?.name||"")}</div>}
+      <div style={{marginBottom:10}}><label style={lb}>{"מה הוזמן?"}</label><input value={form.orderDesc||""} onChange={e=>setForm({...form,orderDesc:e.target.value})} placeholder={"לדוגמה: דקל אדום, 5 שתילים"} style={inp} autoFocus={!!form.orderProjectId}/></div>
+      <div style={{marginBottom:10}}><label style={lb}>{"ספק"}</label><input value={form.orderSupplier||""} onChange={e=>setForm({...form,orderSupplier:e.target.value})} style={inp}/></div>
+      <div style={{marginBottom:10}}><label style={lb}>{"מחיר (₪)"}</label><input type="number" value={form.orderAmount||""} onChange={e=>setForm({...form,orderAmount:e.target.value})} style={inp}/></div>
+      <div style={{marginBottom:10}}><label style={lb}>{"סטטוס"}</label>
+        <select value={form.orderStatus||"ordered"} onChange={e=>setForm({...form,orderStatus:e.target.value})} style={inp}>
+          <option value="ordered">{"📞 הוזמן"}</option><option value="onway">{"🚛 בדרך"}</option><option value="received">{"✅ התקבל"}</option>
+        </select>
+      </div>
+      <div style={{marginBottom:14}}><label style={lb}>{"הערות"}</label><textarea value={form.orderNote||""} onChange={e=>setForm({...form,orderNote:e.target.value})} style={{...inp,minHeight:50}}/></div>
+      <button onClick={addOrder} style={{...sb,background:C.org}}>{"שמור הזמנה"}</button>
+    </div></div>;
+
+    // ─── EDIT ORDER ───
+    if(modal==="editOrder")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      <h3 style={{fontSize:18,color:C.blu,marginBottom:14,textAlign:"center"}}>{"✏️ עריכת הזמנה"}</h3>
+      <div style={{marginBottom:10,padding:"8px 10px",background:C.bluB,borderRadius:8,fontSize:13,color:C.blu,fontWeight:600,textAlign:"center"}}>{"🌱 "+(allSites.find(s=>s.id===form.editOrderPid)?.name||"")}</div>
+      <div style={{marginBottom:10}}><label style={lb}>{"מה הוזמן?"}</label><input value={form.orderDesc||""} onChange={e=>setForm({...form,orderDesc:e.target.value})} style={inp} autoFocus/></div>
+      <div style={{marginBottom:10}}><label style={lb}>{"ספק"}</label><input value={form.orderSupplier||""} onChange={e=>setForm({...form,orderSupplier:e.target.value})} style={inp}/></div>
+      <div style={{marginBottom:10}}><label style={lb}>{"מחיר (₪)"}</label><input type="number" value={form.orderAmount||""} onChange={e=>setForm({...form,orderAmount:e.target.value})} style={inp}/></div>
+      <div style={{marginBottom:10}}><label style={lb}>{"סטטוס"}</label>
+        <select value={form.orderStatus||"ordered"} onChange={e=>setForm({...form,orderStatus:e.target.value})} style={inp}>
+          <option value="ordered">{"📞 הוזמן"}</option><option value="onway">{"🚛 בדרך"}</option><option value="received">{"✅ התקבל"}</option>
+        </select>
+      </div>
+      <div style={{marginBottom:14}}><label style={lb}>{"הערות"}</label><textarea value={form.orderNote||""} onChange={e=>setForm({...form,orderNote:e.target.value})} style={{...inp,minHeight:50}}/></div>
+      <button onClick={editOrder} style={{...sb,background:C.blu}}>{"שמור שינויים"}</button>
+    </div></div>;
+
+    // ─── ADD BULK ORDER (supermarket-style picker) ───
+    if(modal==="addBulkOrder"){
+      const items=form.bulkItems||[];
+      const inv=data.inventory||[];
+      // Group inventory by category
+      const byCat={};
+      INV_CATS.forEach(c=>{byCat[c.id]={cat:c,items:[]};});
+      inv.forEach(it=>{if(byCat[it.category])byCat[it.category].items.push(it);});
+
+      // Add or merge item to cart
+      const addToCart=(invItem,size,qty)=>{
+        qty=+qty||1;
+        const desc=size?invItem.name+" - "+size:invItem.name;
+        // Check if same item+size already in cart, merge quantities
+        const existingIdx=items.findIndex(it=>it.invItemId===invItem.id && it.size===size);
+        if(existingIdx>=0){
+          const newItems=[...items];
+          newItems[existingIdx]={...newItems[existingIdx],qty:(+newItems[existingIdx].qty||1)+qty};
+          setForm({...form,bulkItems:newItems,sizeModalFor:null});
+        } else {
+          setForm({...form,bulkItems:[...items,{invItemId:invItem.id,name:invItem.name,size,qty,desc,amount:invItem.defaultPrice||"",projectId:form.bulkAssignAll||""}],sizeModalFor:null});
+        }
+      };
+      const removeFromCart=(idx)=>{setForm({...form,bulkItems:items.filter((_,i)=>i!==idx)});};
+      const updateCartItem=(idx,field,val)=>{const newItems=[...items];newItems[idx]={...newItems[idx],[field]:val};setForm({...form,bulkItems:newItems});};
+      const incQty=(idx,delta)=>{const newItems=[...items];const cur=+newItems[idx].qty||1;newItems[idx]={...newItems[idx],qty:Math.max(1,cur+delta)};setForm({...form,bulkItems:newItems});};
+      const total=items.reduce((s,it)=>s+((+it.amount||0)*(+it.qty||1)),0);
+      const totalQty=items.reduce((s,it)=>s+(+it.qty||1),0);
+      const assignAllToProject=(targetType,targetId,targetText)=>{setForm({...form,bulkAssignAll:targetType+":"+(targetId||""),bulkAssignAllText:targetText||"",bulkItems:items.map(it=>({...it,assignType:targetType,projectId:targetId||"",freeText:targetText||""}))});};
+      // Manual custom item add
+      const addCustomItem=()=>{setForm({...form,bulkItems:[...items,{name:"",size:"",qty:1,desc:"",amount:"",projectId:"",assignType:"project",saveToInv:false,saveToCat:"shrubs"}],editingIdx:items.length});};
+      // Save custom items to inventory (called before saving the order)
+      const saveCustomItemsToInventory=(d)=>{
+        if(!d.inventory)d.inventory=[];
+        items.forEach(it=>{
+          if(!it.invItemId && it.saveToInv && it.name && it.name.trim()){
+            const exists=d.inventory.some(inv=>(inv.name||"").trim().toLowerCase()===it.name.trim().toLowerCase());
+            if(!exists){
+              d.inventory.push({id:uid(),name:it.name.trim(),category:it.saveToCat||"shrubs"});
+            }
+          }
+        });
+      };
+      // Step: 1=pick items, 2=details (project/supplier/save)
+      const step=form.bulkStep||1;
+      const setStep=(s)=>setForm({...form,bulkStep:s});
+      // Save handler
+      const saveBulkOrderEnhanced=()=>{
+        // Validate: each item must have a destination
+        const validItems=items.filter(it=>{
+          if(!(it.desc||it.name))return false;
+          const t=it.assignType||"project";
+          if(t==="project"||t==="maintenance")return !!it.projectId;
+          if(t==="test")return true;
+          if(t==="free")return !!(it.freeText||"").trim();
+          return false;
+        });
+        if(validItems.length===0)return;
+        const supplier=form.bulkSupplier||"";
+        const status=form.bulkStatus||"ordered";
+        const date=form.bulkDate||todayISO;
+        const orderNote=(form.bulkOrderNote||"").trim();
+        up(d=>{
+          // First save any custom items to inventory if requested
+          saveCustomItemsToInventory(d);
+          if(!d.projectOrders)d.projectOrders={};
+          validItems.forEach(it=>{
+            const t=it.assignType||"project";
+            // Build destination key: real project id, maintenance site id (m1, m2), or special keys
+            let destKey;
+            if(t==="project"||t==="maintenance"){destKey=it.projectId;}
+            else if(t==="test"){destKey="__test__";}
+            else if(t==="free"){destKey="__free__";}
+            if(!d.projectOrders[destKey])d.projectOrders[destKey]=[];
+            const qty=+it.qty||1;
+            let desc=qty>1?qty+"× "+(it.desc||it.name+(it.size?" - "+it.size:"")):(it.desc||it.name+(it.size?" - "+it.size:""));
+            // Build combined note: free text (if applicable) + order note
+            const parts=[];
+            if(t==="free" && it.freeText)parts.push(it.freeText);
+            if(orderNote)parts.push(orderNote);
+            const note=parts.join(" · ");
+            d.projectOrders[destKey].push({id:uid(),desc,supplier,amount:(+it.amount||0)*qty,status,date,note,assignType:t});
+          });
+        });
+        setModal(null);setForm({});
+      };
+
+      // Size picker mini-modal (when user clicks an inventory item)
+      const sizeModalItem=form.sizeModalFor;
+      if(sizeModalItem){
+        const cat=INV_CATS.find(c=>c.id===sizeModalItem.category);
+        const sizes=cat?.sizes||[];
+        const selectedSize=form.tempSize||sizes[0]||"";
+        const selectedQty=+form.tempQty||1;
+        return <div onClick={()=>setForm({...form,sizeModalFor:null})} style={{...ov,zIndex:1100}}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:400}}>
+          <h3 style={{fontSize:18,color:C.grn,marginBottom:14,textAlign:"center"}}>{(cat?.icon||"")+" "+sizeModalItem.name}</h3>
+          {sizes.length>0 && <div style={{marginBottom:14}}>
+            <label style={lb}>{"גודל"}</label>
+            <div style={{display:"grid",gridTemplateColumns:"repeat("+Math.min(sizes.length,4)+", 1fr)",gap:6}}>
+              {sizes.map(sz=><button key={sz} onClick={()=>setForm({...form,tempSize:sz})} style={{padding:"12px 4px",borderRadius:8,border:"2px solid "+(selectedSize===sz?C.grn:C.bdr),background:selectedSize===sz?C.grnP:"#fff",color:selectedSize===sz?C.grn:C.txtM,fontSize:14,fontWeight:selectedSize===sz?700:500,cursor:"pointer",fontFamily:"inherit"}}>{sz}</button>)}
+            </div>
+          </div>}
+          <div style={{marginBottom:14}}>
+            <label style={lb}>{"כמות"}</label>
+            <div style={{display:"flex",alignItems:"center",gap:8,justifyContent:"center",marginBottom:8}}>
+              <button onClick={()=>setForm({...form,tempQty:Math.max(1,selectedQty-1)})} style={{width:42,height:42,borderRadius:"50%",border:"1px solid "+C.bdr,background:C.wht,fontSize:22,cursor:"pointer",fontWeight:700,fontFamily:"inherit"}}>−</button>
+              <input type="number" min="1" value={selectedQty} onChange={e=>{const v=parseInt(e.target.value)||1;setForm({...form,tempQty:Math.max(1,v)});}} onFocus={e=>e.target.select()} style={{width:90,height:50,fontSize:24,fontWeight:700,textAlign:"center",border:"2px solid "+C.grn,borderRadius:10,fontFamily:"inherit",outline:"none",background:C.grnP,color:C.grn}}/>
+              <button onClick={()=>setForm({...form,tempQty:selectedQty+1})} style={{width:42,height:42,borderRadius:"50%",border:"1px solid "+C.bdr,background:C.wht,fontSize:22,cursor:"pointer",fontWeight:700,fontFamily:"inherit"}}>+</button>
+            </div>
+            {/* Quick increment buttons for big quantities */}
+            <div style={{display:"flex",gap:5,justifyContent:"center"}}>
+              {[5,10,25,50,100].map(n=><button key={n} onClick={()=>setForm({...form,tempQty:selectedQty+n})} style={{flex:1,padding:"6px 4px",borderRadius:8,border:"1px solid "+C.bdr,background:C.cardA,color:C.grn,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"+"+n}</button>)}
+            </div>
+          </div>
+          <button onClick={()=>{addToCart(sizeModalItem,selectedSize,selectedQty);setForm(p=>({...p,sizeModalFor:null,tempSize:"",tempQty:1}));}} style={{...sb,background:C.grn}}>{"➕ הוסף לעגלה"}</button>
+          <button onClick={()=>setForm({...form,sizeModalFor:null,tempSize:"",tempQty:1})} style={{width:"100%",padding:10,borderRadius:10,border:"1px solid "+C.bdr,background:"#fff",color:C.txtM,fontSize:13,cursor:"pointer",fontFamily:"inherit",marginTop:6}}>{"ביטול"}</button>
+        </div></div>;
+      }
+
+      return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:560,width:"100%",padding:0,maxHeight:"94vh"}}>
+        {/* Sticky header */}
+        <div style={{background:C.org,color:"#fff",padding:"12px 16px",position:"sticky",top:0,zIndex:10,borderRadius:"16px 16px 0 0"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <button onClick={close} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",width:30,height:30,borderRadius:"50%",cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>{"×"}</button>
+            <div style={{textAlign:"right",flex:1,marginInlineStart:10}}>
+              <div style={{fontSize:17,fontWeight:700}}>{step===1?"🛒 בחר פריטים":"📋 פרטי הזמנה"}</div>
+              <div style={{fontSize:11,opacity:0.85}}>{items.length>0?(totalQty+" פריטים"+(total>0?" · ₪"+total.toLocaleString():"")):"עגלה ריקה"}</div>
+            </div>
+          </div>
+          {/* Step tabs */}
+          <div style={{display:"flex",gap:4,marginTop:10}}>
+            <button onClick={()=>setStep(1)} style={{flex:1,padding:"6px",borderRadius:14,border:"none",background:step===1?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.1)",color:"#fff",fontSize:12,fontWeight:step===1?700:500,cursor:"pointer",fontFamily:"inherit"}}>{"1. פריטים"}</button>
+            <button onClick={()=>{if(items.length>0)setStep(2);}} style={{flex:1,padding:"6px",borderRadius:14,border:"none",background:step===2?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.1)",color:"#fff",fontSize:12,fontWeight:step===2?700:500,cursor:items.length>0?"pointer":"not-allowed",fontFamily:"inherit",opacity:items.length>0?1:0.5}}>{"2. שמירה"}</button>
+          </div>
+        </div>
+
+        <div style={{padding:"14px 16px",overflowY:"auto",maxHeight:"calc(94vh - 110px)"}}>
+          {/* STEP 1: Pick items */}
+          {step===1 && <div>
+            {/* Cart preview */}
+            {items.length>0 && <div style={{background:C.grnP,borderRadius:10,padding:10,marginBottom:14,border:"1px solid "+C.grn}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.grn,marginBottom:8,display:"flex",justifyContent:"space-between"}}>
+                <span>{totalQty+" פריטים"}</span>
+                <span>{"🛒 בעגלה"}</span>
+              </div>
+              {items.map((it,i)=><div key={i} style={{background:"#fff",borderRadius:6,padding:"6px 8px",marginBottom:4,fontSize:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <span onClick={()=>removeFromCart(i)} style={{cursor:"pointer",color:C.red,fontSize:14,marginInlineEnd:4}}>{"✕"}</span>
+                  <button onClick={()=>incQty(i,-1)} style={{width:24,height:24,borderRadius:"50%",border:"1px solid "+C.bdr,background:"#fff",fontSize:12,cursor:"pointer",fontWeight:700,fontFamily:"inherit"}}>−</button>
+                  <input type="number" min="1" value={it.qty||1} onChange={e=>{const v=parseInt(e.target.value)||1;updateCartItem(i,"qty",Math.max(1,v));}} onFocus={e=>e.target.select()} style={{width:50,height:26,fontSize:13,fontWeight:700,textAlign:"center",border:"1px solid "+C.grn,borderRadius:6,fontFamily:"inherit",outline:"none",background:C.grnP,color:C.grn}}/>
+                  <button onClick={()=>incQty(i,1)} style={{width:24,height:24,borderRadius:"50%",border:"1px solid "+C.bdr,background:"#fff",fontSize:12,cursor:"pointer",fontWeight:700,fontFamily:"inherit"}}>+</button>
+                </div>
+                <div style={{textAlign:"right",flex:1,marginInlineStart:8}}>
+                  <div style={{fontWeight:600}}>{it.name||it.desc}</div>
+                  {it.size && <div style={{fontSize:10,color:C.txtM}}>{"גודל: "+it.size}</div>}
+                </div>
+              </div>)}
+              <button onClick={()=>setStep(2)} style={{width:"100%",padding:"10px",borderRadius:8,border:"none",background:C.grn,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginTop:6}}>{"המשך לשמירה ← ("+totalQty+" פריטים)"}</button>
+            </div>}
+
+            {/* Search filter */}
+            <div style={{marginBottom:12,position:"sticky",top:0,zIndex:5,background:C.card,paddingBottom:6}}>
+              <input value={form.bulkSearch||""} onChange={e=>setForm({...form,bulkSearch:e.target.value})} placeholder={"🔍 חפש פריט..."} style={{...inp,fontSize:13,padding:"10px 14px"}}/>
+            </div>
+
+            {/* Categories with items */}
+            {INV_CATS.map(cat=>{
+              const allCatItems=byCat[cat.id]?.items||[];
+              const searchQ=(form.bulkSearch||"").trim().toLowerCase();
+              const catItems=searchQ?allCatItems.filter(it=>(it.name||"").toLowerCase().includes(searchQ)):allCatItems;
+              if(searchQ && catItems.length===0)return null;
+              return <div key={cat.id} style={{marginBottom:14}}>
+                <div style={{fontSize:14,fontWeight:700,marginBottom:8,padding:"6px 10px",background:C.grnP,color:C.grn,borderRadius:6,display:"flex",justifyContent:"space-between"}}>
+                  <span style={{fontSize:11,opacity:0.7}}>{catItems.length+(searchQ?"/"+allCatItems.length:"")}</span>
+                  <span>{cat.icon+" "+cat.label}</span>
+                </div>
+                {allCatItems.length===0 && <div style={{textAlign:"center",color:C.txtL,fontSize:11,padding:10}}>{"אין פריטים. הוסף בהגדרות → מאגר ציוד"}</div>}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(2, 1fr)",gap:6}}>
+                  {catItems.map(it=>{
+                    const inCart=items.filter(c=>c.invItemId===it.id).reduce((s,c)=>s+(+c.qty||1),0);
+                    return <div key={it.id} style={{padding:"12px 8px",borderRadius:10,border:"2px solid "+(inCart>0?C.grn:C.bdr),background:inCart>0?C.grnP:"#fff",fontFamily:"inherit",textAlign:"center",position:"relative",cursor:"pointer"}} onClick={()=>setForm({...form,sizeModalFor:it,tempSize:cat.sizes[0]||"",tempQty:1})}>
+                      {/* Delete button (top-left, only on hover) */}
+                      <button onClick={e=>{e.stopPropagation();if(confirm("למחוק את \""+it.name+"\" מהמאגר?\n(ההזמנות הקיימות לא יושפעו)"))delInvItem(it.id);}} style={{position:"absolute",top:-7,left:-7,background:"#fff",border:"1px solid "+C.bdr,color:C.txtL,width:20,height:20,borderRadius:"50%",cursor:"pointer",fontSize:11,fontFamily:"inherit",padding:0,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}} title={"מחק מהמאגר"}>{"🗑"}</button>
+                      {inCart>0 && <span style={{position:"absolute",top:-6,right:-6,background:C.grn,color:"#fff",borderRadius:"50%",minWidth:22,height:22,fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>{inCart}</span>}
+                      <div style={{fontSize:13,fontWeight:600,color:inCart>0?C.grn:C.txt,lineHeight:1.3}}>{it.name}</div>
+                    </div>;
+                  })}
+                </div>
+              </div>;
+            })}
+
+            {/* Custom item button */}
+            <button onClick={addCustomItem} style={{width:"100%",padding:"10px",borderRadius:10,border:"2px dashed "+C.bdr,background:C.cardA,color:C.txtM,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginBottom:10}}>{"+ פריט חופשי (לא במאגר)"}</button>
+
+            {/* Custom items being edited */}
+            {items.map((it,i)=>{
+              if(it.invItemId)return null; // already shown in cart
+              return <div key={i} style={{background:"#fff",border:"1px solid "+C.bdr,borderRadius:10,padding:10,marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <span style={{fontSize:11,fontWeight:700,color:C.txtM}}>{"פריט חופשי #"+(i+1)}</span>
+                  <button onClick={()=>removeFromCart(i)} style={{background:"none",border:"none",color:C.red,fontSize:16,cursor:"pointer",padding:0,fontWeight:700}}>{"×"}</button>
+                </div>
+                <input value={it.name||""} onChange={e=>updateCartItem(i,"name",e.target.value)} placeholder={"שם הפריט"} style={{...inp,fontSize:13,padding:"8px 10px",marginBottom:6}}/>
+                <div style={{display:"flex",gap:6,marginBottom:8}}>
+                  <input value={it.size||""} onChange={e=>updateCartItem(i,"size",e.target.value)} placeholder={"גודל"} style={{...inp,fontSize:13,padding:"8px 10px",flex:1}}/>
+                  <input type="number" value={it.qty||1} onChange={e=>{const v=parseInt(e.target.value)||1;updateCartItem(i,"qty",Math.max(1,v));}} placeholder={"כמות"} style={{...inp,fontSize:13,padding:"8px 10px",width:80,textAlign:"center"}}/>
+                </div>
+                {/* Save to inventory checkbox */}
+                <div style={{background:C.grnP,borderRadius:8,padding:"8px 10px",border:"1px solid "+C.grn}}>
+                  <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:12,fontWeight:600,color:C.grn}}>
+                    <input type="checkbox" checked={!!it.saveToInv} onChange={e=>updateCartItem(i,"saveToInv",e.target.checked)} style={{width:18,height:18,cursor:"pointer",accentColor:C.grn}}/>
+                    <span>{"💾 שמור במאגר לעתיד"}</span>
+                  </label>
+                  {it.saveToInv && it.name && <div style={{marginTop:8,display:"flex",gap:4}}>
+                    {INV_CATS.map(cat=><button key={cat.id} onClick={()=>updateCartItem(i,"saveToCat",cat.id)} style={{flex:1,padding:"6px 4px",borderRadius:6,border:"1px solid "+((it.saveToCat||"shrubs")===cat.id?C.grn:C.bdr),background:(it.saveToCat||"shrubs")===cat.id?C.grn:"#fff",color:(it.saveToCat||"shrubs")===cat.id?"#fff":C.txtM,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{cat.icon+" "+cat.label}</button>)}
+                  </div>}
+                </div>
+              </div>;
+            })}
+          </div>}
+
+          {/* STEP 2: Details and save */}
+          {step===2 && <div>
+            {/* Bulk assign all items to one destination */}
+            <div style={{background:C.bluB,borderRadius:10,padding:12,marginBottom:10,border:"1px solid "+C.blu}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.blu,marginBottom:8}}>{"🎯 שייך את כל הקניות בלחיצה אחת:"}</div>
+              {/* Type selector */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:3,marginBottom:8}}>
+                {[
+                  {id:"project",label:"🌱 פרויקט",color:C.grn},
+                  {id:"maintenance",label:"🌳 תחזוקה",color:C.blu},
+                  {id:"test",label:"🧪 טסט",color:C.purp},
+                  {id:"free",label:"✏️ חופשי",color:C.org},
+                ].map(opt=>{
+                  const active=form.bulkAllType===opt.id;
+                  return <button key={opt.id} onClick={()=>setForm({...form,bulkAllType:opt.id,bulkAllId:"",bulkAllText:""})} style={{padding:"6px 2px",borderRadius:6,border:"1.5px solid "+(active?opt.color:C.bdr),background:active?opt.color:"#fff",color:active?"#fff":C.txtM,fontSize:11,fontWeight:active?700:500,cursor:"pointer",fontFamily:"inherit"}}>{opt.label}</button>;
+                })}
+              </div>
+              {/* Conditional input */}
+              {form.bulkAllType==="project" && <select value={form.bulkAllId||""} onChange={e=>setForm({...form,bulkAllId:e.target.value})} style={{...inp,fontSize:13,padding:"8px 12px",marginBottom:6}}>
+                <option value="">{"-- בחר פרויקט --"}</option>
+                {(data.devSites||[]).filter(p=>p.status!=="done").map(p=><option key={p.id} value={p.id}>{"🌱 "+p.name}</option>)}
+              </select>}
+              {form.bulkAllType==="maintenance" && <select value={form.bulkAllId||""} onChange={e=>setForm({...form,bulkAllId:e.target.value})} style={{...inp,fontSize:13,padding:"8px 12px",marginBottom:6}}>
+                <option value="">{"-- בחר אתר תחזוקה --"}</option>
+                {(data.maintenanceSites||[]).map(s=><option key={s.id} value={s.id}>{"🌳 "+s.name}</option>)}
+              </select>}
+              {form.bulkAllType==="free" && <input value={form.bulkAllText||""} onChange={e=>setForm({...form,bulkAllText:e.target.value})} placeholder={"טקסט חופשי - לאן זה הולך?"} style={{...inp,fontSize:13,padding:"8px 12px",marginBottom:6}}/>}
+              {form.bulkAllType==="test" && <div style={{padding:"8px 12px",fontSize:12,color:C.purp,fontWeight:600,background:"#f3e8ff",borderRadius:8,border:"1px solid "+C.purp,textAlign:"center",marginBottom:6}}>{"🧪 ללא שיוך - לטסט / ניסיון"}</div>}
+              {form.bulkAllType && (form.bulkAllType==="test"||form.bulkAllType==="project"||form.bulkAllType==="maintenance"||form.bulkAllType==="free") && <button onClick={()=>{
+                const t=form.bulkAllType;
+                if((t==="project"||t==="maintenance") && !form.bulkAllId)return;
+                if(t==="free" && !(form.bulkAllText||"").trim())return;
+                setForm({...form,bulkItems:items.map(it=>({...it,assignType:t,projectId:(t==="project"||t==="maintenance")?form.bulkAllId:"",freeText:t==="free"?form.bulkAllText:""}))});
+              }} style={{width:"100%",padding:10,borderRadius:8,border:"none",background:C.blu,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"⚡ החל על כל ה-"+totalQty+" פריטים"}</button>}
+            </div>
+
+            {/* Order note */}
+            <div style={{background:"#fffbe6",borderRadius:10,padding:12,marginBottom:14,border:"1px solid "+C.org}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.org,marginBottom:6}}>{"📝 הערה להזמנה (אופציונלי):"}</div>
+              <input value={form.bulkOrderNote||""} onChange={e=>setForm({...form,bulkOrderNote:e.target.value})} placeholder={"למשל: הזמנת אביב לפרויקט הגן הקהילתי"} style={{...inp,fontSize:13,padding:"10px 12px"}}/>
+            </div>
+
+            {/* Items list with full assignment options */}
+            <div style={{fontSize:12,fontWeight:700,marginBottom:8,color:C.org}}>{"📦 פריטים בהזמנה ("+totalQty+"):"}</div>
+            {items.map((it,i)=>{
+              const aType=it.assignType||"project";
+              const isValid=(aType==="project"||aType==="maintenance")?!!it.projectId:(aType==="test"?true:!!(it.freeText||"").trim());
+              return <div key={i} style={{background:"#fff",border:"1px solid "+C.bdr,borderRadius:10,padding:10,marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <button onClick={()=>removeFromCart(i)} style={{background:"none",border:"none",color:C.red,fontSize:14,cursor:"pointer",padding:0}}>{"✕"}</button>
+                  <div style={{textAlign:"right",flex:1}}>
+                    <div style={{fontSize:14,fontWeight:600}}>{(it.qty>1?it.qty+"× ":"")+(it.name||it.desc)}</div>
+                    {it.size && <div style={{fontSize:10,color:C.txtM}}>{"גודל: "+it.size}</div>}
+                  </div>
+                </div>
+                {/* Assignment type tabs */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:3,marginBottom:6}}>
+                  {[
+                    {id:"project",label:"🌱 פרויקט",color:C.grn},
+                    {id:"maintenance",label:"🌳 תחזוקה",color:C.blu},
+                    {id:"test",label:"🧪 טסט",color:C.purp},
+                    {id:"free",label:"✏️ חופשי",color:C.org},
+                  ].map(opt=>{
+                    const active=aType===opt.id;
+                    return <button key={opt.id} onClick={()=>{updateCartItem(i,"assignType",opt.id);if(opt.id!=="project"&&opt.id!=="maintenance")updateCartItem(i,"projectId","");}} style={{padding:"5px 2px",borderRadius:6,border:"1.5px solid "+(active?opt.color:C.bdr),background:active?opt.color:"#fff",color:active?"#fff":C.txtM,fontSize:10,fontWeight:active?700:500,cursor:"pointer",fontFamily:"inherit"}}>{opt.label}</button>;
+                  })}
+                </div>
+                {/* Conditional input based on assignment type */}
+                <div style={{display:"flex",gap:6}}>
+                  {aType==="project" && <select value={it.projectId||""} onChange={e=>updateCartItem(i,"projectId",e.target.value)} style={{...inp,fontSize:12,padding:"7px 10px",flex:2,border:"1px solid "+(it.projectId?C.bdr:C.red)}}>
+                    <option value="">{"-- בחר פרויקט --"}</option>
+                    {(data.devSites||[]).filter(p=>p.status!=="done").map(p=><option key={p.id} value={p.id}>{"🌱 "+p.name}</option>)}
+                  </select>}
+                  {aType==="maintenance" && <select value={it.projectId||""} onChange={e=>updateCartItem(i,"projectId",e.target.value)} style={{...inp,fontSize:12,padding:"7px 10px",flex:2,border:"1px solid "+(it.projectId?C.bdr:C.red)}}>
+                    <option value="">{"-- בחר אתר תחזוקה --"}</option>
+                    {(data.maintenanceSites||[]).map(s=><option key={s.id} value={s.id}>{"🌳 "+s.name}</option>)}
+                  </select>}
+                  {aType==="test" && <div style={{flex:2,padding:"7px 10px",fontSize:12,color:C.purp,fontWeight:600,background:"#f3e8ff",borderRadius:8,border:"1px solid "+C.purp,textAlign:"center"}}>{"🧪 ללא שיוך - לטסט / ניסיון"}</div>}
+                  {aType==="free" && <input value={it.freeText||""} onChange={e=>updateCartItem(i,"freeText",e.target.value)} placeholder={"לאן זה הולך? (טקסט חופשי)"} style={{...inp,fontSize:12,padding:"7px 10px",flex:2,border:"1px solid "+((it.freeText||"").trim()?C.bdr:C.red)}}/>}
+                  <input type="number" value={it.amount||""} onChange={e=>updateCartItem(i,"amount",e.target.value)} placeholder={"₪/יח'"} style={{...inp,fontSize:12,padding:"7px 10px",flex:1,textAlign:"center"}}/>
+                </div>
+                {(+it.amount>0 && +it.qty>1) && <div style={{fontSize:10,color:C.txtM,marginTop:4,textAlign:"left"}}>{"סה״כ: ₪"+((+it.amount)*(+it.qty)).toLocaleString()}</div>}
+              </div>;
+            })}
+
+            {total>0 && <div style={{background:C.grnP,borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:15,fontWeight:700,color:C.grn,display:"flex",justifyContent:"space-between"}}>
+              <span>{"₪"+total.toLocaleString()}</span>
+              <span>{"💰 סה״כ ההזמנה:"}</span>
+            </div>}
+
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>setStep(1)} style={{flex:1,padding:14,borderRadius:12,border:"1px solid "+C.bdr,background:"#fff",color:C.txtM,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"← חזור לפריטים"}</button>
+              <button onClick={saveBulkOrderEnhanced} style={{flex:2,padding:14,borderRadius:12,border:"none",background:C.org,color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"💾 שמור הזמנה"}</button>
+            </div>
+            {(()=>{const invalid=items.filter(it=>{const t=it.assignType||"project";if(t==="project"||t==="maintenance")return !it.projectId;if(t==="free")return !(it.freeText||"").trim();return false;}).length;return invalid>0?<div style={{fontSize:11,color:C.red,textAlign:"center",marginTop:6}}>{"⚠️ "+invalid+" פריטים חסרים שיוך"}</div>:null;})()}
+          </div>}
+        </div>
+      </div></div>;
+    }
+
+    // ─── PICK FROM INVENTORY (legacy - now unused but kept for compatibility) ───
+    if(modal==="pickInventory"){setModal("addBulkOrder");return null;}
+
+    // ─── ALL ORDERS (centralized view) ───
+    if(modal==="allOrders"){
+      const allOrders=[];
+      const getDestInfo=(pid,o)=>{
+        if(pid==="__test__")return {label:"🧪 טסט / ניסיון",color:C.purp};
+        if(pid==="__free__")return {label:"✏️ "+(o.note||"חופשי"),color:C.org};
+        // Check if it's a maintenance site
+        const mSite=(data.maintenanceSites||[]).find(s=>s.id===pid);
+        if(mSite)return {label:"🌳 "+mSite.name,color:C.blu};
+        // Check if it's a dev project
+        const dSite=(data.devSites||[]).find(s=>s.id===pid);
+        if(dSite)return {label:"🌱 "+dSite.name,color:C.grn};
+        return {label:"❓ "+sn(pid),color:C.txtM};
+      };
+      Object.keys(data.projectOrders||{}).forEach(pid=>{
+        (data.projectOrders[pid]||[]).forEach(o=>{
+          const di=getDestInfo(pid,o);
+          allOrders.push({...o,projectId:pid,projectName:di.label,projectColor:di.color});
+        });
+      });
+      // Filter
+      let filtered=allOrders;
+      if(ordersFilter!=="all")filtered=filtered.filter(o=>o.status===ordersFilter);
+      if(ordersSearch.trim()){
+        const q=ordersSearch.trim().toLowerCase();
+        filtered=filtered.filter(o=>(o.desc||"").toLowerCase().includes(q)||(o.supplier||"").toLowerCase().includes(q)||(o.projectName||"").toLowerCase().includes(q));
+      }
+      filtered.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+      const counts={all:allOrders.length,ordered:allOrders.filter(o=>o.status==="ordered").length,onway:allOrders.filter(o=>o.status==="onway").length,received:allOrders.filter(o=>o.status==="received").length};
+      const totalAmount=filtered.reduce((s,o)=>s+(+o.amount||0),0);
+      const filters=[{id:"all",label:"הכל",count:counts.all,color:C.txtM},{id:"ordered",label:"📞 הוזמן",count:counts.ordered,color:C.org},{id:"onway",label:"🚛 בדרך",count:counts.onway,color:C.blu},{id:"received",label:"✅ התקבל",count:counts.received,color:C.grn}];
+
+      return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:560,width:"100%",padding:0,maxHeight:"92vh"}}>
+        <div style={{background:C.org,color:"#fff",padding:"14px 18px",position:"sticky",top:0,borderRadius:"16px 16px 0 0",zIndex:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <button onClick={close} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",width:28,height:28,borderRadius:"50%",cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>{"×"}</button>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:18,fontWeight:700}}>{"📦 כל ההזמנות"}</div>
+              <div style={{fontSize:11,opacity:0.85}}>{counts.all+" הזמנות · ₪"+totalAmount.toLocaleString()+" סה״כ מוצג"}</div>
+            </div>
+          </div>
+          {/* Search */}
+          <input value={ordersSearch} onChange={e=>setOrdersSearch(e.target.value)} placeholder={"🔍 חפש לפי פריט / ספק / פרויקט..."} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"none",fontSize:13,fontFamily:"inherit",direction:"rtl",outline:"none",boxSizing:"border-box",marginBottom:8}}/>
+          {/* Filter tabs */}
+          <div style={{display:"flex",gap:4,overflowX:"auto",paddingBottom:2}}>
+            {filters.map(f=><button key={f.id} onClick={()=>setOrdersFilter(f.id)} style={{flex:"0 0 auto",padding:"5px 10px",borderRadius:14,border:"none",background:ordersFilter===f.id?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.1)",color:"#fff",fontSize:11,fontWeight:ordersFilter===f.id?700:400,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{f.label+" ("+f.count+")"}</button>)}
+          </div>
+        </div>
+
+        <div style={{padding:"14px 16px",overflowY:"auto",maxHeight:"calc(92vh - 130px)"}}>
+          <button onClick={()=>{setForm({bulkSupplier:"",bulkStatus:"ordered",bulkDate:todayISO,bulkNote:"",bulkItems:[],bulkStep:1});setModal("addBulkOrder");}} style={{width:"100%",padding:12,borderRadius:10,border:"none",background:C.org,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>{"🛒 + הזמנה משולבת חדשה"}</button>
+
+          {filtered.length===0 && <div style={{textAlign:"center",color:C.txtL,padding:30,fontSize:13}}>{ordersSearch?"לא נמצאו תוצאות":"אין הזמנות"}</div>}
+
+          {filtered.map(o=>{
+            const statusColors={ordered:{bg:"#fff3cd",bdr:C.org,clr:C.org,label:"📞 הוזמן"},onway:{bg:C.bluB,bdr:C.blu,clr:C.blu,label:"🚛 בדרך"},received:{bg:C.grnP,bdr:C.grn,clr:C.grn,label:"✅ התקבל"}};
+            const sc=statusColors[o.status]||statusColors.ordered;
+            return <div key={o.id} style={{background:"#fff",borderRadius:10,border:"1px solid "+C.bdr,padding:12,marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                <span style={{padding:"3px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:sc.bg,color:sc.clr,border:"1px solid "+sc.bdr}}>{sc.label}</span>
+                <div style={{textAlign:"right",flex:1,marginInlineStart:8}}>
+                  <div style={{fontSize:14,fontWeight:700,marginBottom:2}}>{o.desc}</div>
+                  <div style={{fontSize:11,color:o.projectColor||C.blu,fontWeight:600}}>{o.projectName}</div>
+                </div>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,color:C.txtM,marginTop:6,paddingTop:6,borderTop:"1px solid "+C.bdr}}>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {o.supplier && <span>{"🏪 "+o.supplier}</span>}
+                  {o.amount>0 && <span style={{fontWeight:700,color:C.txt}}>{"₪"+(+o.amount).toLocaleString()}</span>}
+                  {o.date && <span>{fmtFull(o.date)}</span>}
+                </div>
+              </div>
+              {o.note && <div style={{fontSize:11,color:C.txtM,padding:"6px 8px",background:C.cardA,borderRadius:6,marginTop:6}}>{"📝 "+o.note}</div>}
+              {/* Quick status update */}
+              <div style={{display:"flex",gap:4,marginTop:8}}>
+                {["ordered","onway","received"].map(st=>{const _sc=statusColors[st];return <button key={st} onClick={()=>upOrderStatus(o.projectId,o.id,st)} style={{flex:1,padding:"6px 4px",borderRadius:6,border:"1px solid "+(o.status===st?_sc.bdr:C.bdr),background:o.status===st?_sc.bg:"#fff",color:o.status===st?_sc.clr:C.txtM,fontSize:10,fontWeight:o.status===st?700:500,cursor:"pointer",fontFamily:"inherit"}}>{_sc.label}</button>;})}
+              </div>
+              <div style={{display:"flex",gap:4,marginTop:6}}>
+                <button onClick={()=>{setForm({editOrderPid:o.projectId,editOrderOid:o.id,orderDesc:o.desc,orderSupplier:o.supplier,orderAmount:o.amount,orderStatus:o.status,orderNote:o.note});setModal("editOrder");}} style={{flex:1,padding:"5px",borderRadius:6,border:"1px solid "+C.blu,background:"#fff",color:C.blu,fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"✏️ ערוך"}</button>
+                <button onClick={()=>{if(confirm("למחוק את ההזמנה?"))delOrder(o.projectId,o.id);}} style={{flex:1,padding:"5px",borderRadius:6,border:"1px solid "+C.red,background:"#fff",color:C.red,fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"🗑 מחק"}</button>
+              </div>
+            </div>;
+          })}
+        </div>
+      </div></div>;
+    }
+
+    // ─── ADD BILLING EXTRA ───
+    if(modal==="addBillingExtra")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      <h3 style={{fontSize:18,color:C.org,marginBottom:14,textAlign:"center"}}>{"💰 תוספת לחיוב"}</h3>
+      <div style={{marginBottom:10}}><label style={lb}>{"לקוח / אתר"}</label>
+        <select value={form.extraSiteId||""} onChange={e=>setForm({...form,extraSiteId:e.target.value})} style={inp}>
+          <option value="">{"-- בחר --"}</option>{allSites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </div>
+      <div style={{marginBottom:10}}><label style={lb}>{"סכום (₪)"}</label><input type="number" value={form.extraAmount||""} onChange={e=>setForm({...form,extraAmount:e.target.value})} style={inp}/></div>
+      <div style={{marginBottom:10}}><label style={lb}>{"תיאור"}</label><input value={form.extraDesc||""} onChange={e=>setForm({...form,extraDesc:e.target.value})} placeholder={"דשן נוסף, שתילי בוקסוס..."} style={inp}/></div>
+      <div style={{marginBottom:14}}><label style={lb}>{"תאריך"}</label><input type="date" value={form.extraDate||todayISO} onChange={e=>setForm({...form,extraDate:e.target.value})} style={inp}/></div>
+      <button onClick={addBillingExtra} style={{...sb,background:C.org}}>{"הוסף תוספת"}</button>
+    </div></div>;
+
+    // ─── SITE DETAIL ───
+    if(modal==="siteDetail"){
+      const site=allSites.find(s=>s.id===form.siteId);
+      if(!site)return null;
+      const isDev=site.type==="d";
+      const accent=isDev?C.blu:C.org;
+      const accentBg=isDev?C.bluB:C.orgB;
+      const siteTasks=[];
+      Object.keys(data.dailyTasks||{}).forEach(d=>{(data.dailyTasks[d]||[]).forEach(t=>{if(t.siteId===site.id)siteTasks.push({...t,date:d});});});
+      siteTasks.sort((a,b)=>b.date.localeCompare(a.date));
+      const sitePhotos=(data.photos?.[site.id]||[]).slice().reverse();
+      const siteOrders=(data.projectOrders?.[site.id]||[]);
+      const siteExtras=(data.billingExtras||[]).filter(e=>e.siteId===site.id);
+      const siteMeetings=(data.meetings||[]).filter(m=>m.siteId===site.id).sort((a,b)=>b.date.localeCompare(a.date));
+      const nextNotes=(data.nextVisitNotes?.[site.id]||[]);
+      const billPending=siteTasks.filter(t=>t.billable==="ready").length;
+      const billInvoiced=siteTasks.filter(t=>t.billable==="invoiced").length;
+      const updateSite=(patch)=>{up(d=>{const arr=isDev?"devSites":"maintenanceSites";const idx=d[arr].findIndex(x=>x.id===site.id);if(idx>=0)d[arr][idx]={...d[arr][idx],...patch};});};
+
+      const detailTabs=[
+        {key:"overview",label:"סקירה",icon:"📊"},
+        {key:"notes",label:"הערות",icon:"📝"},
+        {key:"nextvisit",label:"לטיפול הבא",icon:"💡"},
+        {key:"tasks",label:"משימות",icon:"📋"},
+        {key:"photos",label:"תמונות",icon:"📷"},
+        ...(isDev?[{key:"orders",label:"הזמנות",icon:"📦"}]:[]),
+        {key:"billing",label:"חיוב",icon:"💰"},
+        {key:"meetings",label:"פגישות",icon:"📅"},
+      ];
+
+      return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:560,width:"100%",padding:0,maxHeight:"92vh"}}>
+        {/* Sticky header */}
+        <div style={{background:accent,color:"#fff",padding:"14px 18px",position:"sticky",top:0,borderRadius:"16px 16px 0 0",zIndex:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <button onClick={close} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",width:28,height:28,borderRadius:"50%",cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>{"×"}</button>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:11,opacity:0.85}}>{isDev?"🌱 פרויקט":"🔧 תחזוקה"}</div>
+              <div style={{fontSize:18,fontWeight:700}}>{site.name}</div>
+            </div>
+          </div>
+          {/* Sub tabs */}
+          <div style={{display:"flex",gap:4,overflowX:"auto",paddingBottom:2}}>
+            {detailTabs.map(t=><button key={t.key} onClick={()=>setSiteDetailTab(t.key)} style={{flex:"0 0 auto",padding:"6px 10px",borderRadius:14,border:"none",background:siteDetailTab===t.key?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.1)",color:"#fff",fontSize:11,fontWeight:siteDetailTab===t.key?700:400,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{t.icon+" "+t.label}</button>)}
+          </div>
+        </div>
+
+        <div style={{padding:"16px 18px",overflowY:"auto",maxHeight:"calc(92vh - 110px)"}}>
+          {/* OVERVIEW */}
+          {siteDetailTab==="overview" && <div>
+            {/* Quick action buttons */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3, 1fr)",gap:6,marginBottom:14}}>
+              <button onClick={()=>{setForm({notes:"",siteId:site.id,type:site.type,image:"",taskDate:todayISO});setModal("addTask");}} style={{padding:"10px 4px",borderRadius:10,border:"none",background:C.grn,color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"➕ משימה"}</button>
+              <button onClick={()=>{setExpImg(null);setExpStep(0);setForm({siteId:site.id});setModal("quickPhoto");}} style={{padding:"10px 4px",borderRadius:10,border:"none",background:C.hdr,color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"📷 תמונה"}</button>
+              <button onClick={()=>{setForm({extraSiteId:site.id,extraAmount:"",extraDesc:"",extraDate:todayISO});setModal("addBillingExtra");}} style={{padding:"10px 4px",borderRadius:10,border:"none",background:C.org,color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"💰 תוספת"}</button>
+            </div>
+
+            {/* Stats */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:6,marginBottom:14}}>
+              {[["📋",siteTasks.filter(t=>t.status!=="done").length,"פתוחות"],["📷",sitePhotos.length,"תמונות"],["💰",billPending,"לחיוב"],["✓",billInvoiced,"חויבו"]].map(([i,v,l],k)=><div key={k} style={{background:accentBg,borderRadius:8,padding:"8px 4px",textAlign:"center"}}>
+                <div style={{fontSize:14}}>{i}</div>
+                <div style={{fontSize:16,fontWeight:700,color:accent}}>{v}</div>
+                <div style={{fontSize:9,color:C.txtM}}>{l}</div>
+              </div>)}
+            </div>
+
+            {/* Project price summary */}
+            {isDev && site.quotedPrice>0 && <div style={{background:C.bluB,borderRadius:10,padding:12,marginBottom:14,border:"1px solid "+C.blu}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.blu,marginBottom:6}}>{"💼 סיכום כספי"}</div>
+              {site.quoteNumber && <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3,paddingBottom:6,borderBottom:"1px solid "+C.blu+"30"}}>
+                <span style={{fontWeight:700,color:C.blu}}>{"#"+site.quoteNumber}</span>
+                <span style={{color:C.txtM}}>{"📄 מס' הצעת מחיר:"}</span>
+              </div>}
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3}}>
+                <span style={{fontWeight:700,color:C.blu}}>{"₪"+site.quotedPrice.toLocaleString()}</span>
+                <span style={{color:C.txtM}}>{"הצעת מחיר:"}</span>
+              </div>
+              {siteExtras.filter(e=>!e.invoiced).length>0 && <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.org}}>
+                <span style={{fontWeight:700}}>{"+₪"+siteExtras.filter(e=>!e.invoiced).reduce((s,e)=>s+(+e.amount||0),0).toLocaleString()}</span>
+                <span>{"תוספות לחיוב:"}</span>
+              </div>}
+              {siteOrders.length>0 && <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.red,marginTop:3}}>
+                <span style={{fontWeight:700}}>{"-₪"+siteOrders.reduce((s,o)=>s+(+o.amount||0),0).toLocaleString()}</span>
+                <span>{"הוצאות חומרים:"}</span>
+              </div>}
+              <hr style={{border:"none",borderTop:"1px solid "+C.blu+"40",margin:"8px 0"}}/>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700}}>
+                <span style={{color:C.grn}}>{"₪"+(site.quotedPrice+siteExtras.filter(e=>!e.invoiced).reduce((s,e)=>s+(+e.amount||0),0)-siteOrders.reduce((s,o)=>s+(+o.amount||0),0)).toLocaleString()}</span>
+                <span>{"רווח צפוי:"}</span>
+              </div>
+            </div>}
+
+            {/* Quick info */}
+            <div style={{background:C.cardA,borderRadius:10,padding:12,fontSize:13,lineHeight:1.8}}>
+              {site.client && <div>{"👤 "+site.client}</div>}
+              {site.phone && <div>{"📞 "}<a href={"tel:"+site.phone} style={{color:accent}}>{site.phone}</a></div>}
+              {site.address && <div>{"📍 "+site.address}</div>}
+              {isDev?(site.deadline && <div>{"📅 יעד: "+site.deadline}</div>):<div>{"🔄 "+site.frequency}</div>}
+            </div>
+
+            {/* Status toggle for projects */}
+            {isDev && <button onClick={()=>updateSite({status:site.status==="done"?"active":"done"})} style={{marginTop:12,width:"100%",padding:12,borderRadius:10,border:"none",background:site.status==="done"?C.grn:C.cardA,color:site.status==="done"?"#fff":C.txt,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{site.status==="done"?"✓ הפרויקט הושלם (לחץ לפתיחה מחדש)":"סמן כהושלם ✓"}</button>}
+          </div>}
+
+          {/* NOTES */}
+          {siteDetailTab==="notes" && <div>
+            <div style={{fontSize:12,color:C.txtM,marginBottom:8}}>{"הערות קבועות שנשמרות לכרטיס זה"}</div>
+            <textarea value={site.notes||""} onChange={e=>updateSite({notes:e.target.value})} placeholder={"לדוגמה: יש כלב, השער מקודקד 1234, להתקשר לפני הגעה..."} style={{width:"100%",minHeight:200,padding:12,borderRadius:10,border:"1px solid "+C.bdr,fontSize:14,fontFamily:"inherit",resize:"vertical",boxSizing:"border-box",direction:"rtl"}}/>
+
+            {/* Site fields */}
+            <div style={{marginTop:14,background:C.cardA,borderRadius:10,padding:12}}>
+              <div style={{fontSize:12,fontWeight:700,marginBottom:8,color:accent}}>{"⚙️ פרטי הלקוח"}</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6,fontSize:13}}>
+                <input value={site.client||""} onChange={e=>updateSite({client:e.target.value})} placeholder={"שם לקוח"} style={{...inp,fontSize:13,padding:"8px 10px"}}/>
+                <input value={site.phone||""} onChange={e=>updateSite({phone:e.target.value})} placeholder={"טלפון"} type="tel" style={{...inp,fontSize:13,padding:"8px 10px"}}/>
+                <input value={site.address||""} onChange={e=>updateSite({address:e.target.value})} placeholder={"כתובת"} style={{...inp,fontSize:13,padding:"8px 10px"}}/>
+                {isDev && <React.Fragment>
+                  <input type="number" value={site.quotedPrice||""} onChange={e=>updateSite({quotedPrice:+e.target.value})} placeholder={"💼 הצעת מחיר ₪"} style={{...inp,fontSize:13,padding:"8px 10px"}}/>
+                  <input value={site.quoteNumber||""} onChange={e=>updateSite({quoteNumber:e.target.value})} placeholder={"📄 מס' הצעת מחיר"} style={{...inp,fontSize:13,padding:"8px 10px"}}/>
+                  <input type="date" value={site.deadline||""} onChange={e=>updateSite({deadline:e.target.value})} style={{...inp,fontSize:13,padding:"8px 10px"}}/>
+                </React.Fragment>}
+                {!isDev && <select value={site.frequency||"כל שבוע"} onChange={e=>updateSite({frequency:e.target.value})} style={{...inp,fontSize:13,padding:"8px 10px"}}>
+                  <option>{"2 פעמים בשבוע"}</option><option>{"כל שבוע"}</option><option>{"דו שבועי"}</option><option>{"פעמיים בחודש"}</option><option>{"פעם בחודש"}</option>
+                </select>}
+              </div>
+            </div>
+          </div>}
+
+          {/* NEXT VISIT NOTES */}
+          {siteDetailTab==="nextvisit" && <div>
+            <div style={{fontSize:12,color:C.txtM,marginBottom:10}}>{"💡 הערות לטיפול הבא - יופיעו בשיבוץ הבא של אתר זה"}</div>
+            <div style={{display:"flex",gap:6,marginBottom:14}}>
+              <button onClick={()=>{const t=form.newNoteText;if(!t)return;addNextVisitNote(site.id,t);setForm({...form,newNoteText:""});}} style={{padding:"10px 14px",borderRadius:8,border:"none",background:C.purp,color:"#fff",cursor:"pointer",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>{"+"}</button>
+              <input value={form.newNoteText||""} onChange={e=>setForm({...form,newNoteText:e.target.value})} onKeyDown={e=>{if(e.key==="Enter"&&form.newNoteText){addNextVisitNote(site.id,form.newNoteText);setForm({...form,newNoteText:""});}}} placeholder={"לדוגמה: להביא דשן..."} style={inp}/>
+            </div>
+            {nextNotes.length===0 && <div style={{textAlign:"center",color:C.txtL,padding:20}}>{"אין הערות"}</div>}
+            {nextNotes.map(n=><div key={n.id} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:n.done?C.grnP:C.purpB,marginBottom:6,border:"1px solid "+(n.done?C.grnL:C.purp)}}>
+              <span onClick={()=>delNextVisit(site.id,n.id)} style={{fontSize:14,color:C.red,cursor:"pointer"}}>🗑</span>
+              <span onClick={()=>togNextVisit(site.id,n.id)} style={{fontSize:22,cursor:"pointer"}}>{n.done?"✅":"⬜"}</span>
+              <div style={{flex:1,textAlign:"right"}}>
+                <div style={{fontSize:14,fontWeight:500,textDecoration:n.done?"line-through":"none"}}>{n.text}</div>
+                <div style={{fontSize:10,color:C.txtM}}>{"נוסף "+fmtFull(n.addedDate)}</div>
+              </div>
+            </div>)}
+          </div>}
+
+          {/* TASKS */}
+          {siteDetailTab==="tasks" && <div>
+            <button onClick={()=>{setForm({notes:"",siteId:site.id,type:site.type,image:"",taskDate:todayISO});setModal("addTask");}} style={{width:"100%",padding:12,borderRadius:10,border:"none",background:C.grn,color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>{"+ משימה חדשה"}</button>
+            {siteTasks.length===0 && <div style={{textAlign:"center",color:C.txtL,padding:20}}>{"אין משימות"}</div>}
+            {siteTasks.map(t=><div key={t.id} style={{padding:"10px 12px",borderRadius:8,background:t.status==="done"?C.grnP:C.cardA,marginBottom:6,border:"1px solid "+(t.status==="done"?C.grnL:C.bdr)}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span onClick={()=>togTask(t.date,t.id)} style={{fontSize:22,cursor:"pointer"}}>{t.status==="done"?"✅":"⬜"}</span>
+                <span onClick={()=>delTask(t.date,t.id)} style={{fontSize:12,color:C.red,cursor:"pointer"}}>🗑</span>
+                <div style={{flex:1,textAlign:"right",fontSize:13}}>
+                  <div style={{fontWeight:500,textDecoration:t.status==="done"?"line-through":"none"}}>{t.notes}</div>
+                  <div style={{fontSize:10,color:C.txtM}}>{fmtFull(t.date)}</div>
+                </div>
+                {t.image && <img src={t.image} onClick={()=>setZoomImg(t.image)} style={{width:36,height:36,objectFit:"cover",borderRadius:5,cursor:"pointer"}} alt=""/>}
+              </div>
+              {t.status==="done" && !t.billable && <button onClick={()=>{setForm({taskDay:t.date,taskId:t.id,extras:""});setModal("billingForm");}} style={{marginTop:6,width:"100%",padding:"6px",borderRadius:6,border:"1px solid "+C.org,background:"#fff3cd",color:C.org,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"💰 שלח לחיוב"}</button>}
+              {t.billable==="ready" && <div style={{marginTop:6,fontSize:11,color:C.org,fontWeight:700}}>{"💰 מוכן לחיוב"+(t.billingExtras?" · "+t.billingExtras:"")}</div>}
+              {t.billable==="invoiced" && <div style={{marginTop:6,fontSize:11,color:C.grn,fontWeight:700}}>{"✓ חויב"}</div>}
+            </div>)}
+          </div>}
+
+          {/* PHOTOS */}
+          {siteDetailTab==="photos" && <div>
+            <button onClick={()=>{setExpImg(null);setExpStep(0);setForm({siteId:site.id,photoType:""});setModal("quickPhoto");}} style={{width:"100%",padding:12,borderRadius:10,border:"none",background:C.hdr,color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>{"📷 הוסף תמונה"}</button>
+            {sitePhotos.length===0 && <div style={{textAlign:"center",color:C.txtL,padding:20}}>{"אין תמונות"}</div>}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3, 1fr)",gap:6}}>
+              {sitePhotos.map(p=><div key={p.id} onClick={()=>setZoomImg(p)} style={{position:"relative",cursor:"pointer"}}>
+                <img src={p.image} style={{width:"100%",aspectRatio:"1",objectFit:"cover",borderRadius:8}} alt=""/>
+                {p.photoType && <span style={{position:"absolute",top:4,right:4,padding:"1px 5px",borderRadius:5,fontSize:8,fontWeight:700,background:p.photoType==="before"?"#fff3cd":"#d8f3dc",color:p.photoType==="before"?C.org:C.grn}}>{p.photoType==="before"?"לפני":"אחרי"}</span>}
+              </div>)}
+            </div>
+          </div>}
+
+          {/* ORDERS */}
+          {siteDetailTab==="orders" && isDev && <div>
+            <button onClick={()=>{setForm({orderProjectId:site.id,orderDesc:"",orderSupplier:"",orderAmount:"",orderStatus:"ordered",orderNote:""});setModal("addOrder");}} style={{width:"100%",padding:12,borderRadius:10,border:"none",background:C.org,color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>{"+ הזמנה חדשה"}</button>
+            {siteOrders.length===0 && <div style={{textAlign:"center",color:C.txtL,padding:20}}>{"אין הזמנות"}</div>}
+            <div style={{fontSize:12,color:C.txtM,marginBottom:8,textAlign:"center"}}>{"סה\"כ הוצאות: ₪"+siteOrders.reduce((s,o)=>s+(+o.amount||0),0).toLocaleString()}</div>
+            {siteOrders.map(o=>{
+              const statusInfo=o.status==="received"?{ic:"✅",label:"התקבל",col:C.grn,bg:C.grnP}:o.status==="onway"?{ic:"🚛",label:"בדרך",col:C.org,bg:C.orgB}:{ic:"📞",label:"הוזמן",col:C.txtM,bg:C.cardA};
+              return <div key={o.id} style={{background:"#fff",borderRadius:10,padding:"10px 12px",marginBottom:6,border:"1px solid "+C.bdr}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                  <span style={{padding:"2px 8px",borderRadius:8,fontSize:10,fontWeight:700,background:statusInfo.bg,color:statusInfo.col}}>{statusInfo.ic+" "+statusInfo.label}</span>
+                  <span style={{fontWeight:700,fontSize:14,textAlign:"right",flex:1,marginRight:8}}>{o.desc}</span>
+                </div>
+                <div style={{fontSize:11,color:C.txtM,marginBottom:6}}>{(o.supplier?"👤 "+o.supplier+" · ":"")+"₪"+(+o.amount||0).toLocaleString()+" · "+fmtFull(o.date)}</div>
+                {o.note && <div style={{fontSize:11,color:C.txtM,padding:"4px 8px",background:C.cardA,borderRadius:5,marginBottom:6}}>{o.note}</div>}
+                <div style={{display:"flex",gap:4}}>
+                  {o.status!=="ordered" && <button onClick={()=>upOrderStatus(site.id,o.id,"ordered")} style={{flex:1,padding:5,borderRadius:6,border:"1px solid "+C.bdr,background:"#fff",fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>{"📞 הוזמן"}</button>}
+                  {o.status!=="onway" && <button onClick={()=>upOrderStatus(site.id,o.id,"onway")} style={{flex:1,padding:5,borderRadius:6,border:"1px solid "+C.bdr,background:"#fff",fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>{"🚛 בדרך"}</button>}
+                  {o.status!=="received" && <button onClick={()=>upOrderStatus(site.id,o.id,"received")} style={{flex:1,padding:5,borderRadius:6,border:"1px solid "+C.grn,background:C.grnP,color:C.grn,fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>{"✅ התקבל"}</button>}
+                  <button onClick={()=>delOrder(site.id,o.id)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid "+C.red,background:"#fff",color:C.red,fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>{"🗑"}</button>
+                </div>
+              </div>;
+            })}
+          </div>}
+
+          {/* BILLING */}
+          {siteDetailTab==="billing" && <div>
+            <button onClick={()=>{setForm({extraSiteId:site.id,extraAmount:"",extraDesc:"",extraDate:todayISO});setModal("addBillingExtra");}} style={{width:"100%",padding:12,borderRadius:10,border:"none",background:C.org,color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>{"+ תוספת לחיוב"}</button>
+
+            {/* Pending bills (tasks) */}
+            {siteTasks.filter(t=>t.billable==="ready").length>0 && <div style={{marginBottom:14}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:8,color:C.org}}>{"💰 משימות מוכנות לחיוב"}</div>
+              {siteTasks.filter(t=>t.billable==="ready").map(t=><div key={t.id} style={{padding:"10px 12px",borderRadius:8,background:"#fff3cd",marginBottom:6,border:"1px solid "+C.org}}>
+                <div style={{fontWeight:700,fontSize:13}}>{t.notes}</div>
+                <div style={{fontSize:10,color:C.txtM,marginTop:2}}>{fmtFull(t.date)+(t.billingExtras?" · "+t.billingExtras:"")}</div>
+                <button onClick={()=>markInvoiced(t.date,t.id)} style={{marginTop:6,padding:"4px 10px",borderRadius:6,border:"none",background:C.org,color:"#fff",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"✓ סמן כחויב"}</button>
+              </div>)}
+            </div>}
+
+            {/* Extras */}
+            {siteExtras.length>0 && <div style={{marginBottom:14}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:8,color:C.org}}>{"📌 תוספות לחיוב"}</div>
+              <div style={{fontSize:11,color:C.txtM,marginBottom:6}}>{"לא חויב: ₪"+siteExtras.filter(e=>!e.invoiced).reduce((s,e)=>s+(+e.amount||0),0).toLocaleString()+" · חויב: ₪"+siteExtras.filter(e=>e.invoiced).reduce((s,e)=>s+(+e.amount||0),0).toLocaleString()}</div>
+              {siteExtras.map(e=><div key={e.id} style={{padding:"10px 12px",borderRadius:8,background:e.invoiced?C.grnP:"#fff3cd",marginBottom:6,border:"1px solid "+(e.invoiced?C.grnL:C.org)}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontWeight:700,color:e.invoiced?C.grn:C.org}}>{"₪"+(+e.amount).toLocaleString()}</span>
+                  <span style={{fontSize:13}}>{e.desc||"תוספת"}</span>
+                </div>
+                <div style={{fontSize:10,color:C.txtM,marginTop:2}}>{fmtFull(e.date)}</div>
+                <div style={{display:"flex",gap:4,marginTop:6}}>
+                  <button onClick={()=>togExtraInvoiced(e.id)} style={{flex:1,padding:5,borderRadius:6,border:"none",background:e.invoiced?C.cardA:C.org,color:e.invoiced?C.txt:"#fff",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>{e.invoiced?"בטל חיוב":"סמן חויב ✓"}</button>
+                  <button onClick={()=>delExtra(e.id)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid "+C.red,background:"#fff",color:C.red,fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>{"🗑"}</button>
+                </div>
+              </div>)}
+            </div>}
+
+            {/* Invoiced history */}
+            {siteTasks.filter(t=>t.billable==="invoiced").length>0 && <div>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:8,color:C.grn}}>{"✓ חויבו ("+siteTasks.filter(t=>t.billable==="invoiced").length+")"}</div>
+              {siteTasks.filter(t=>t.billable==="invoiced").map(t=><div key={t.id} style={{padding:"6px 10px",borderRadius:6,background:C.grnP,marginBottom:4,fontSize:11}}>
+                <div style={{fontWeight:600}}>{t.notes}</div>
+                <div style={{fontSize:9,color:C.txtM}}>{fmtFull(t.date)}</div>
+              </div>)}
+            </div>}
+          </div>}
+
+          {/* MEETINGS */}
+          {siteDetailTab==="meetings" && <div>
+            <button onClick={()=>{setForm({meetingSiteId:site.id,meetingDate:todayISO,meetingTime:"",meetingNotes:""});setModal("addMeeting");}} style={{width:"100%",padding:12,borderRadius:10,border:"none",background:C.purp,color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>{"+ פגישה חדשה"}</button>
+            {siteMeetings.length===0 && <div style={{textAlign:"center",color:C.txtL,padding:20}}>{"אין פגישות"}</div>}
+            {siteMeetings.map(m=><div key={m.id} style={{padding:"10px 12px",borderRadius:8,background:m.done?C.grnP:C.purpB,marginBottom:6,border:"1px solid "+(m.done?C.grnL:C.purp)}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                <span onClick={()=>togMeeting(m.id)} style={{fontSize:20,cursor:"pointer"}}>{m.done?"✅":"⬜"}</span>
+                <span style={{fontWeight:700,fontSize:13}}>{fmtFull(m.date)+(m.time?" · "+m.time:"")}</span>
+              </div>
+              {m.notes && <div style={{fontSize:12,color:C.txtM,padding:"4px 8px",background:"#fff",borderRadius:5}}>{m.notes}</div>}
+            </div>)}
+          </div>}
+        </div>
+      </div></div>;
+    }
+
+    // ─── BILLING LIST (all sites) ───
+    if(modal==="billingList"){
+      const items=[];
+      Object.keys(data.dailyTasks||{}).forEach(d=>{(data.dailyTasks[d]||[]).forEach(t=>{if(t.billable==="ready")items.push({...t,date:d});});});
+      const extras=(data.billingExtras||[]).filter(e=>!e.invoiced);
+      // Group by site
+      const grouped={};
+      items.forEach(t=>{const k=t.siteId||"_none";if(!grouped[k])grouped[k]={tasks:[],extras:[]};grouped[k].tasks.push(t);});
+      extras.forEach(e=>{const k=e.siteId||"_none";if(!grouped[k])grouped[k]={tasks:[],extras:[]};grouped[k].extras.push(e);});
+
+      return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:520}}>
+        <h3 style={{fontSize:18,color:C.org,marginBottom:14,textAlign:"center"}}>{"💰 מוכנות לחיוב"}</h3>
+        {Object.keys(grouped).length===0 && <div style={{textAlign:"center",color:C.txtL,padding:20}}>{"אין משימות מוכנות"}</div>}
+        {Object.entries(grouped).map(([sid,{tasks,extras}])=>{
+          const siteName=sid==="_none"?"ללא לקוח":sn(sid);
+          const total=tasks.length+extras.length;
+          if(total===0)return null;
+          return <div key={sid} style={{background:"#fff",borderRadius:10,padding:12,marginBottom:10,border:"2px solid "+C.org}}>
+            <div style={{fontWeight:700,fontSize:15,marginBottom:8,color:C.org}}>{siteName+" ("+total+")"}</div>
+            {tasks.map(t=><div key={t.id} style={{padding:"8px 10px",borderRadius:6,marginBottom:4,background:"#fff3cd",fontSize:12}}>
+              <div style={{display:"flex",justifyContent:"space-between"}}>
+                <span style={{fontSize:10,color:C.txtL}}>{fmtFull(t.date)}</span>
+                <span style={{fontWeight:600}}>{t.notes}</span>
+              </div>
+              {t.billingExtras && <div style={{fontSize:10,color:C.txtM,marginTop:2}}>{"📌 "+t.billingExtras}</div>}
+              <button onClick={()=>markInvoiced(t.date,t.id)} style={{marginTop:4,padding:"3px 8px",borderRadius:4,border:"none",background:C.org,color:"#fff",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"✓ חויב"}</button>
+            </div>)}
+            {extras.map(e=><div key={e.id} style={{padding:"8px 10px",borderRadius:6,marginBottom:4,background:"#fff3cd",fontSize:12}}>
+              <div style={{display:"flex",justifyContent:"space-between"}}>
+                <span style={{fontWeight:700,color:C.org}}>{"₪"+(+e.amount).toLocaleString()}</span>
+                <span>{e.desc||"תוספת"}</span>
+              </div>
+              <button onClick={()=>togExtraInvoiced(e.id)} style={{marginTop:4,padding:"3px 8px",borderRadius:4,border:"none",background:C.org,color:"#fff",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"✓ חויב"}</button>
+            </div>)}
+          </div>;
+        })}
+      </div></div>;
+    }
+
+    // ─── MEETINGS LIST ───
+    if(modal==="meetingsList"){
+      const upcoming=(data.meetings||[]).filter(m=>!m.done).sort((a,b)=>a.date.localeCompare(b.date));
+      return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:500}}>
+        <h3 style={{fontSize:18,color:C.purp,marginBottom:14,textAlign:"center"}}>{"📅 פגישות קרובות"}</h3>
+        {upcoming.length===0 && <div style={{textAlign:"center",color:C.txtL,padding:20}}>{"אין פגישות"}</div>}
+        {upcoming.map(m=><div key={m.id} style={{padding:"12px 14px",borderRadius:10,marginBottom:8,background:C.purpB,border:"1px solid "+C.purp}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+            <span onClick={()=>togMeeting(m.id)} style={{fontSize:20,cursor:"pointer"}}>{"⬜"}</span>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontWeight:700,fontSize:14}}>{fmtFull(m.date)+(m.time?" · "+m.time:"")}</div>
+              <div style={{fontSize:12,color:C.purp}}>{meetingLabel(m)}</div>
+            </div>
+          </div>
+          {m.notes && <div style={{fontSize:12,color:C.txtM,padding:"6px 8px",background:"#fff",borderRadius:5,marginTop:4}}>{m.notes}</div>}
+        </div>)}
+      </div></div>;
+    }
+
+    // ─── ADD TASK ───
+    if(modal==="addTask")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      <h3 style={{fontSize:17,color:C.grn,marginBottom:14}}>{"משימה חדשה"}</h3>
+      <div style={{marginBottom:12}}><label style={lb}>{"תיאור"}</label><input value={form.notes||""} onChange={e=>setForm({...form,notes:e.target.value})} onKeyDown={e=>e.key==="Enter"&&saveTask()} placeholder={"מה צריך?"} style={inp} autoFocus/></div>
+      <div style={{marginBottom:12}}><label style={lb}>{"תאריך"}</label><input type="date" value={form.taskDate||selISO} onChange={e=>setForm({...form,taskDate:e.target.value})} style={inp}/></div>
+      <div style={{marginBottom:12}}><label style={lb}>{"לקוח / אתר (אופציונלי)"}</label>
+        <select value={form.siteId||""} onChange={e=>setForm({...form,siteId:e.target.value,type:allSites.find(s=>s.id===e.target.value)?.type||""})} style={inp}>
+          <option value="">{"ללא"}</option>{allSites.map(s=><option key={s.id} value={s.id}>{(s.type==="m"?"🔧 ":"🌱 ")+s.name}</option>)}
+        </select>
+      </div>
+      <div style={{marginBottom:14}}>
+        <label style={lb}>{"תמונה (אופציונלי)"}</label>
+        {form.image ? <div style={{position:"relative"}}>
+          <img src={form.image} style={{width:"100%",borderRadius:10,maxHeight:200,objectFit:"cover"}} alt=""/>
+          <button onClick={()=>setForm(p=>({...p,image:""}))} style={{position:"absolute",top:6,right:6,background:"rgba(0,0,0,0.6)",color:"#fff",border:"none",borderRadius:"50%",width:26,height:26,cursor:"pointer",fontSize:14}}>×</button>
+        </div> : <div style={{display:"flex",gap:6}}>
+          <label style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"12px",borderRadius:10,border:"2px dashed "+C.bdr,background:C.cardA,color:C.txtM,fontSize:13,cursor:"pointer",fontWeight:600}}>
+            <span style={{fontSize:18}}>📷</span>{"מצלמה"}
+            <input type="file" accept="image/*" capture="environment" onChange={handleAnyImg(img=>setForm(p=>({...p,image:img})))} style={{display:"none"}}/>
+          </label>
+          <label style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"12px",borderRadius:10,border:"2px dashed "+C.bdr,background:C.cardA,color:C.txtM,fontSize:13,cursor:"pointer",fontWeight:600}}>
+            <span style={{fontSize:18}}>🖼️</span>{"גלריה"}
+            <input type="file" accept="image/*" onChange={handleAnyImg(img=>setForm(p=>({...p,image:img})))} style={{display:"none"}}/>
+          </label>
+        </div>}
+      </div>
+      <button onClick={saveTask} style={sb}>{"שמור"}</button>
+    </div></div>;
+
+    // ─── EDIT TASK ───
+    if(modal==="editTask")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      <h3 style={{fontSize:17,color:C.blu,marginBottom:14}}>{"✏️ ערוך משימה"}</h3>
+      <div style={{marginBottom:12}}><label style={lb}>{"תיאור"}</label><input value={form.notes||""} onChange={e=>setForm({...form,notes:e.target.value})} onKeyDown={e=>e.key==="Enter"&&editTask()} style={inp} autoFocus/></div>
+      <div style={{marginBottom:12}}><label style={lb}>{"לקוח / אתר"}</label>
+        <select value={form.siteId||""} onChange={e=>setForm({...form,siteId:e.target.value})} style={inp}>
+          <option value="">{"ללא"}</option>{allSites.map(s=><option key={s.id} value={s.id}>{(s.type==="m"?"🔧 ":"🌱 ")+s.name}</option>)}
+        </select>
+      </div>
+      <div style={{marginBottom:14}}>
+        <label style={lb}>{"תמונה"}</label>
+        {form.image ? <div style={{position:"relative"}}>
+          <img src={form.image} style={{width:"100%",borderRadius:10,maxHeight:200,objectFit:"cover"}} alt=""/>
+          <button onClick={()=>setForm(p=>({...p,image:""}))} style={{position:"absolute",top:6,right:6,background:"rgba(0,0,0,0.6)",color:"#fff",border:"none",borderRadius:"50%",width:26,height:26,cursor:"pointer",fontSize:14}}>×</button>
+        </div> : <div style={{display:"flex",gap:6}}>
+          <label style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"12px",borderRadius:10,border:"2px dashed "+C.bdr,background:C.cardA,color:C.txtM,fontSize:13,cursor:"pointer",fontWeight:600}}>
+            <span style={{fontSize:18}}>📷</span>{"מצלמה"}
+            <input type="file" accept="image/*" capture="environment" onChange={handleAnyImg(img=>setForm(p=>({...p,image:img})))} style={{display:"none"}}/>
+          </label>
+          <label style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"12px",borderRadius:10,border:"2px dashed "+C.bdr,background:C.cardA,color:C.txtM,fontSize:13,cursor:"pointer",fontWeight:600}}>
+            <span style={{fontSize:18}}>🖼️</span>{"גלריה"}
+            <input type="file" accept="image/*" onChange={handleAnyImg(img=>setForm(p=>({...p,image:img})))} style={{display:"none"}}/>
+          </label>
+        </div>}
+      </div>
+      <button onClick={editTask} style={{...sb,background:C.blu}}>{"שמור שינויים"}</button>
+    </div></div>;
+
+    // ─── ADD REMINDER ───
+    if(modal==="addReminder")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      <h3 style={{fontSize:17,color:C.grn,marginBottom:6,textAlign:"center"}}>{"📌 תזכורת חדשה"}</h3>
+      <div style={{fontSize:11,color:C.txtM,textAlign:"center",marginBottom:14}}>{"התזכורת תופיע למעלה עד שתסומן כבוצעה"}</div>
+      <div style={{marginBottom:12}}><label style={lb}>{"מה?"}</label><input value={form.notes||""} onChange={e=>setForm({...form,notes:e.target.value})} onKeyDown={e=>e.key==="Enter"&&saveReminder()} placeholder={"לקנות סכין חדש..."} style={inp} autoFocus/></div>
+      <div style={{marginBottom:14}}>
+        <label style={lb}>{"תמונה (אופציונלי)"}</label>
+        {form.image ? <div style={{position:"relative"}}>
+          <img src={form.image} style={{width:"100%",borderRadius:10,maxHeight:160,objectFit:"cover"}} alt=""/>
+          <button onClick={()=>setForm(p=>({...p,image:""}))} style={{position:"absolute",top:6,right:6,background:"rgba(0,0,0,0.6)",color:"#fff",border:"none",borderRadius:"50%",width:26,height:26,cursor:"pointer",fontSize:14}}>×</button>
+        </div> : <div style={{display:"flex",gap:6}}>
+          <label style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px",borderRadius:10,border:"2px dashed "+C.bdr,background:C.cardA,color:C.txtM,fontSize:12,cursor:"pointer",fontWeight:600}}>
+            <span style={{fontSize:16}}>📷</span>{"מצלמה"}
+            <input type="file" accept="image/*" capture="environment" onChange={handleAnyImg(img=>setForm(p=>({...p,image:img})))} style={{display:"none"}}/>
+          </label>
+          <label style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px",borderRadius:10,border:"2px dashed "+C.bdr,background:C.cardA,color:C.txtM,fontSize:12,cursor:"pointer",fontWeight:600}}>
+            <span style={{fontSize:16}}>🖼️</span>{"גלריה"}
+            <input type="file" accept="image/*" onChange={handleAnyImg(img=>setForm(p=>({...p,image:img})))} style={{display:"none"}}/>
+          </label>
+        </div>}
+      </div>
+      <button onClick={saveReminder} style={sb}>{"שמור"}</button>
+    </div></div>;
+
+    // ─── EDIT REMINDER ───
+    if(modal==="editReminder")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      <h3 style={{fontSize:17,color:C.blu,marginBottom:14,textAlign:"center"}}>{"✏️ ערוך תזכורת"}</h3>
+      <div style={{marginBottom:12}}><label style={lb}>{"מה?"}</label><input value={form.notes||""} onChange={e=>setForm({...form,notes:e.target.value})} onKeyDown={e=>e.key==="Enter"&&editReminder()} style={inp} autoFocus/></div>
+      <div style={{marginBottom:14}}>
+        <label style={lb}>{"תמונה (אופציונלי)"}</label>
+        {form.image ? <div style={{position:"relative"}}>
+          <img src={form.image} style={{width:"100%",borderRadius:10,maxHeight:160,objectFit:"cover"}} alt=""/>
+          <button onClick={()=>setForm(p=>({...p,image:""}))} style={{position:"absolute",top:6,right:6,background:"rgba(0,0,0,0.6)",color:"#fff",border:"none",borderRadius:"50%",width:26,height:26,cursor:"pointer",fontSize:14}}>×</button>
+        </div> : <div style={{display:"flex",gap:6}}>
+          <label style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px",borderRadius:10,border:"2px dashed "+C.bdr,background:C.cardA,color:C.txtM,fontSize:12,cursor:"pointer",fontWeight:600}}>
+            <span style={{fontSize:16}}>📷</span>{"מצלמה"}
+            <input type="file" accept="image/*" capture="environment" onChange={handleAnyImg(img=>setForm(p=>({...p,image:img})))} style={{display:"none"}}/>
+          </label>
+          <label style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px",borderRadius:10,border:"2px dashed "+C.bdr,background:C.cardA,color:C.txtM,fontSize:12,cursor:"pointer",fontWeight:600}}>
+            <span style={{fontSize:16}}>🖼️</span>{"גלריה"}
+            <input type="file" accept="image/*" onChange={handleAnyImg(img=>setForm(p=>({...p,image:img})))} style={{display:"none"}}/>
+          </label>
+        </div>}
+      </div>
+      <button onClick={editReminder} style={{...sb,background:C.blu}}>{"שמור שינויים"}</button>
+    </div></div>;
+
+    // ─── PHOTO MENU (camera or gallery view) ───
+    if(modal==="photoMenu")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      <h3 style={{fontSize:18,color:C.hdr,marginBottom:14,textAlign:"center"}}>{"📷 תמונות"}</h3>
+      <button onClick={()=>{setExpImg(null);setExpStep(0);setForm({});setModal("quickPhoto");}} style={{width:"100%",padding:16,borderRadius:12,border:"none",background:C.hdr,color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+        <span style={{fontSize:22}}>📷</span>{"הוסף תמונה חדשה"}
+      </button>
+      <button onClick={()=>{setModal(null);setView("gallery");}} style={{width:"100%",padding:16,borderRadius:12,border:"2px solid "+C.hdr,background:"#fff",color:C.hdr,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+        <span style={{fontSize:22}}>🖼️</span>{"פתח גלריה ("+getAllPhotos(data).length+" תמונות)"}
+      </button>
+    </div></div>;
+
+    // ─── BILLING FORM ───
+    if(modal==="billingForm")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      <h3 style={{fontSize:18,color:C.org,marginBottom:14,textAlign:"center"}}>{"💰 שלח לחיוב"}</h3>
+      <div style={{marginBottom:14}}>
+        <label style={lb}>{"תוספות / שינויים"}</label>
+        <textarea value={form.extras||""} onChange={e=>setForm({...form,extras:e.target.value})} placeholder={"לדוגמה: הוספנו שתילים..."} style={{...inp,minHeight:100}}/>
+      </div>
+      <button onClick={()=>{markBillable(form.taskDay,form.taskId,form.extras||"");setModal(null);setForm({});}} style={{...sb,background:C.org}}>{"שלח לחיוב"}</button>
+    </div></div>;
+
+    // ─── QUICK PHOTO ───
+    if(modal==="quickPhoto")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      {expStep===0 && <div>
+        <div style={{fontSize:18,fontWeight:700,textAlign:"center",marginBottom:16,color:C.hdr}}>{"📷 הוסף תמונה"}</div>
+
+        {/* Type selector */}
+        <div style={{display:"flex",gap:6,marginBottom:14}}>
+          <button onClick={()=>setForm(p=>({...p,photoType:""}))} style={{flex:1,padding:"10px",borderRadius:8,border:"2px solid "+(!form.photoType?C.hdr:C.bdr),background:!form.photoType?C.grnP:"#fff",color:!form.photoType?C.hdr:C.txtM,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"רגילה"}</button>
+          <button onClick={()=>setForm(p=>({...p,photoType:"before"}))} style={{flex:1,padding:"10px",borderRadius:8,border:"2px solid "+(form.photoType==="before"?C.org:C.bdr),background:form.photoType==="before"?"#fff3cd":"#fff",color:form.photoType==="before"?C.org:C.txtM,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"לפני"}</button>
+          <button onClick={()=>setForm(p=>({...p,photoType:"after"}))} style={{flex:1,padding:"10px",borderRadius:8,border:"2px solid "+(form.photoType==="after"?C.grn:C.bdr),background:form.photoType==="after"?C.grnP:"#fff",color:form.photoType==="after"?C.grn:C.txtM,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"אחרי"}</button>
+        </div>
+
+        {/* Camera or Gallery */}
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <label style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"20px",borderRadius:14,border:"3px dashed "+C.hdr,background:C.grnP,color:C.hdr,fontSize:16,cursor:"pointer",fontWeight:700}}>
+            <span style={{fontSize:36}}>📷</span>{"צלם עכשיו"}
+            <input type="file" accept="image/*" capture="environment" onChange={e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=ev=>{setExpImg(ev.target.result);setExpStep(1);};r.readAsDataURL(f);}} style={{display:"none"}}/>
+          </label>
+          <label style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"20px",borderRadius:14,border:"3px dashed "+C.blu,background:C.bluB,color:C.blu,fontSize:16,cursor:"pointer",fontWeight:700}}>
+            <span style={{fontSize:36}}>🖼️</span>{"בחר מהגלריה"}
+            <input type="file" accept="image/*" onChange={e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=ev=>{setExpImg(ev.target.result);setExpStep(1);};r.readAsDataURL(f);}} style={{display:"none"}}/>
+          </label>
+        </div>
+      </div>}
+
+      {expStep===1 && <div>
+        <div style={{fontSize:16,fontWeight:700,textAlign:"center",marginBottom:10,color:C.hdr}}>{"לאיזה אתר לשייך?"}</div>
+        {expImg && <img src={expImg} style={{width:"100%",borderRadius:10,marginBottom:12,maxHeight:160,objectFit:"cover"}} alt=""/>}
+        <input value={form.photoNote||""} onChange={e=>setForm({...form,photoNote:e.target.value})} placeholder={"הערה (לא חובה)"} style={{...inp,marginBottom:10}}/>
+        <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:"40vh",overflowY:"auto"}}>
+          {form.siteId ? <button onClick={()=>{savePhoto(form.siteId,form.photoType,form.photoNote,expImg);setExpImg(null);setExpStep(0);setForm({});setModal(null);}} style={{width:"100%",padding:"14px",borderRadius:10,border:"2px solid "+C.grn,background:C.grnP,color:C.grn,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"✓ שמור עבור "+sn(form.siteId)}</button> : <React.Fragment>
+            {allSites.map(s=><button key={s.id} onClick={()=>{savePhoto(s.id,form.photoType,form.photoNote,expImg);setExpImg(null);setExpStep(0);setForm({});setModal(null);}} style={{width:"100%",padding:"12px",borderRadius:10,border:"1px solid "+C.bdr,background:C.wht,color:C.txt,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textAlign:"right"}}>
+              {(s.type==="m"?"🔧 ":"🌱 ")+s.name}
+            </button>)}
+            <button onClick={()=>{savePhoto("",form.photoType,form.photoNote,expImg);setExpImg(null);setExpStep(0);setForm({});setModal(null);}} style={{width:"100%",padding:"12px",borderRadius:10,border:"2px dashed "+C.bdr,background:C.cardA,color:C.txtM,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"📁 כללי (ללא שיוך)"}</button>
+          </React.Fragment>}
+        </div>
+      </div>}
+    </div></div>;
+
+    // ─── QUICK SUB ───
+    if(modal==="quickSub"){
+      const dates=form.subDates||[todayISO];
+      const addDate=()=>setForm(p=>({...p,subDates:[...(p.subDates||[]),todayISO]}));
+      const updateDate=(i,val)=>setForm(p=>{const arr=[...(p.subDates||[])];arr[i]=val;return {...p,subDates:arr};});
+      const removeDate=(i)=>setForm(p=>{const arr=[...(p.subDates||[])];arr.splice(i,1);return {...p,subDates:arr.length?arr:[todayISO]};});
+      return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:500}}>
+        <h3 style={{fontSize:18,color:C.blu,marginBottom:4,textAlign:"center"}}>{"🔨 קבלן משנה"}</h3>
+        <div style={{marginBottom:12}}><label style={lb}>{"שם"}</label><input value={form.subName||""} onChange={e=>setForm({...form,subName:e.target.value})} style={inp} autoFocus/></div>
+        <div style={{marginBottom:12}}><label style={lb}>{"אתר"}</label>
+          <select value={form.subSiteId||""} onChange={e=>setForm({...form,subSiteId:e.target.value})} style={inp}>
+            <option value="">{"בחר..."}</option>
+            <optgroup label="פרויקטים">{(data.devSites||[]).map(s=><option key={s.id} value={s.id}>{"🌱 "+s.name}</option>)}</optgroup>
+            <optgroup label="תחזוקות">{(data.maintenanceSites||[]).map(s=><option key={s.id} value={s.id}>{"🔧 "+s.name}</option>)}</optgroup>
+            <option value="__new__">{"➕ פרויקט חדש"}</option>
+          </select>
+        </div>
+        {form.subSiteId==="__new__" && <div style={{marginBottom:12}}><input value={form.subNewSite||""} onChange={e=>setForm({...form,subNewSite:e.target.value})} placeholder={"שם פרויקט"} style={inp}/></div>}
+        <div style={{marginBottom:14}}><label style={lb}>{"ימי עבודה"}</label>
+          {dates.map((d,i)=><div key={i} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+            <input type="date" value={d} onChange={e=>updateDate(i,e.target.value)} style={{...inp,flex:1}}/>
+            {dates.length>1 && <button onClick={()=>removeDate(i)} style={{background:"none",border:"none",color:C.red,fontSize:18,cursor:"pointer",padding:4}}>{"✕"}</button>}
+          </div>)}
+          <button onClick={addDate} style={{padding:"6px 12px",borderRadius:8,border:"1px dashed "+C.bdr,background:C.cardA,color:C.txtM,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"+ יום נוסף"}</button>
+        </div>
+        <button onClick={quickAddSub} style={{...sb,background:C.blu}}>{"שבץ"}</button>
+      </div></div>;
+    }
+
+    // ─── COMPLETE SUB ───
+    if(modal==="completeSub"){
+      const sub=(data.subContracts||[]).find(s=>s.id===form.subId);
+      if(!sub)return null;
+      const adjustCount=(n)=>setForm(p=>({...p,subWorkerCount:Math.max(1,(p.subWorkerCount||1)+n)}));
+      return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:500}}>
+        <h3 style={{fontSize:18,color:C.blu,marginBottom:14,textAlign:"center"}}>{"✓ פרטי ביצוע"}</h3>
+        <div style={{marginBottom:12}}>
+          <label style={lb}>{"כמה עובדים"}</label>
+          <div style={{display:"flex",alignItems:"center",gap:10,justifyContent:"center"}}>
+            <button onClick={()=>adjustCount(-1)} style={{width:36,height:36,borderRadius:"50%",border:"1px solid "+C.bdr,background:C.wht,fontSize:18,cursor:"pointer",fontWeight:700}}>−</button>
+            <span style={{fontSize:22,fontWeight:700,minWidth:40,textAlign:"center"}}>{form.subWorkerCount||1}</span>
+            <button onClick={()=>adjustCount(1)} style={{width:36,height:36,borderRadius:"50%",border:"1px solid "+C.bdr,background:C.wht,fontSize:18,cursor:"pointer",fontWeight:700}}>+</button>
+          </div>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={lb}>{"שעות"}</label>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <input type="time" value={form.subFrom||dStart()} onChange={e=>setForm({...form,subFrom:e.target.value})} style={{...inp,flex:1}}/>
+            <span>{"עד"}</span>
+            <input type="time" value={form.subTo||dEnd()} onChange={e=>setForm({...form,subTo:e.target.value})} style={{...inp,flex:1}}/>
+          </div>
+        </div>
+        <div style={{marginBottom:14}}><label style={lb}>{"הערות"}</label><textarea value={form.subNotes||""} onChange={e=>setForm({...form,subNotes:e.target.value})} style={{...inp,minHeight:60}}/></div>
+        <button onClick={completeSub} style={{...sb,background:C.grn}}>{"✓ שמור"}</button>
+      </div></div>;
+    }
+
+    // ─── CONFIRM DELETE SUB ───
+    if(modal==="confirmDelSub"){
+      const sub=(data.subContracts||[]).find(s=>s.id===form.subId);
+      if(!sub)return null;
+      const dateKey=form.subDate||todayISO;
+      const multipleDates=(sub.dates||[]).length>1;
+      return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+        <h3 style={{fontSize:17,color:C.red,textAlign:"center",marginBottom:14}}>{"🗑 מחק "+sub.name+"?"}</h3>
+        {multipleDates ? <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <button onClick={()=>{removeSubFromDay(form.subId,dateKey);setModal(null);setForm({});}} style={{padding:"14px",borderRadius:10,border:"2px solid "+C.org,background:"#fff",color:C.org,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"רק היום הזה"}</button>
+          <button onClick={()=>{delSub(form.subId);setModal(null);setForm({});}} style={{padding:"14px",borderRadius:10,border:"2px solid "+C.red,background:C.red,color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"מחק הכל"}</button>
+          <button onClick={close} style={{padding:"10px",borderRadius:10,border:"1px solid "+C.bdr,background:"#fff",color:C.txtM,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{"ביטול"}</button>
+        </div> : <div style={{display:"flex",gap:8}}>
+          <button onClick={close} style={{flex:1,padding:"12px",borderRadius:10,border:"1px solid "+C.bdr,background:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"ביטול"}</button>
+          <button onClick={()=>{delSub(form.subId);setModal(null);setForm({});}} style={{flex:1,padding:"12px",borderRadius:10,border:"none",background:C.red,color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"מחק"}</button>
+        </div>}
+      </div></div>;
+    }
+
+    // ─── ADD SITE QUICK ───
+    if(modal==="addSiteQuick")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      <h3 style={{fontSize:17,color:C.grn,marginBottom:14}}>{"הוסף אתר / פרויקט"}</h3>
+      <div style={{marginBottom:10}}><input value={form.newSiteName||""} onChange={e=>setForm({...form,newSiteName:e.target.value})} placeholder={"שם"} style={inp}/></div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>{if(!(form.newSiteName||"").trim())return;up(d=>{d.devSites=[...(d.devSites||[]),{id:uid(),name:form.newSiteName.trim(),deadline:"",status:"active"}];});setForm({});setModal(null);}} style={{flex:1,...sb,background:C.blu}}>{"🌱 פרויקט"}</button>
+        <button onClick={()=>{if(!(form.newSiteName||"").trim())return;up(d=>{d.maintenanceSites=[...(d.maintenanceSites||[]),{id:uid(),name:form.newSiteName.trim(),frequency:"כל שבוע"}];});setForm({});setModal(null);}} style={{flex:1,...sb,background:C.org}}>{"🔧 תחזוקה"}</button>
+      </div>
+    </div></div>;
+
+    // ─── RESET ───
+    if(modal==="reset")return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={bx}>
+      <h3 style={{fontSize:17,color:C.red,textAlign:"center",marginBottom:10}}>{"⚠️ למחוק הכל?"}</h3>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={async()=>{await save({...INIT});setData({...INIT});setModal(null);}} style={{flex:1,padding:14,borderRadius:10,border:"none",background:C.red,color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"כן"}</button>
+        <button onClick={close} style={{flex:1,padding:14,borderRadius:10,border:"1px solid "+C.bdr,background:C.wht,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"לא"}</button>
+      </div>
+    </div></div>;
+
+    return null;
+  };
+
+  // ZOOM IMAGE OVERLAY
+  const zoomOverlay = zoomImg && <div onClick={()=>setZoomImg(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:20}}>
+    <button onClick={()=>setZoomImg(null)} style={{position:"absolute",top:20,right:20,background:"rgba(255,255,255,0.2)",color:"#fff",border:"none",width:40,height:40,borderRadius:"50%",fontSize:20,cursor:"pointer",fontFamily:"inherit"}}>{"×"}</button>
+    <img src={typeof zoomImg==="string"?zoomImg:zoomImg.image} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}} alt=""/>
+    {typeof zoomImg!=="string" && <div style={{position:"absolute",bottom:20,left:20,right:20,padding:"10px 14px",background:"rgba(0,0,0,0.7)",color:"#fff",borderRadius:10,fontSize:13}}>
+      {zoomImg.siteId && <div style={{fontWeight:700,marginBottom:4}}>{sn(zoomImg.siteId)}</div>}
+      {zoomImg.photoType && <span style={{padding:"2px 8px",borderRadius:6,fontSize:11,background:zoomImg.photoType==="before"?"#fff3cd":"#d8f3dc",color:zoomImg.photoType==="before"?C.org:C.grn,marginLeft:8}}>{zoomImg.photoType==="before"?"לפני":"אחרי"}</span>}
+      {zoomImg.note && <div style={{fontSize:12,marginTop:4,opacity:0.9}}>{zoomImg.note}</div>}
+      {zoomImg.date && <div style={{fontSize:11,opacity:0.7,marginTop:4}}>{fmtFull(zoomImg.date)}</div>}
+    </div>}
+  </div>;
+
+  return(<div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Rubik',sans-serif",direction:"rtl",color:C.txt,maxWidth:480,margin:"0 auto",boxShadow:"0 0 40px rgba(0,0,0,0.08)"}}>
+    {header}
+    <div style={{paddingBottom:20}}>
+      {cv==="monthly"&&monthlyView}
+      {cv==="weekly"&&weeklyView}
+      {cv==="daily"&&dailyView}
+      {cv==="gallery"&&galleryView}
+      {cv==="projects"&&projectsView}
+      {cv==="settings"&&settingsView}
+    </div>
+    {renderModal()}
+    {zoomOverlay}
+  </div>);
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(App));
+</script>
+</body>
+</html>
