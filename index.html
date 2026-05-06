@@ -377,6 +377,9 @@ function App(){
   const getAtt=(dy,wid)=>data.attendance?.[dy]?.[wid]||{present:false,startTime:dStart(),endTime:dEnd(),siteId:""};
   const togTask=(dy,tid)=>{up(d=>{const t=(d.dailyTasks?.[dy]||[]).find(x=>x.id===tid);if(t)t.status=t.status==="done"?"todo":"done";});};
   const delTask=(dy,tid)=>{up(d=>{if(d.dailyTasks?.[dy])d.dailyTasks[dy]=d.dailyTasks[dy].filter(x=>x.id!==tid);});};
+
+  // Confirmation helper - opens generic delete confirm modal
+  const confirmDel=(name,action)=>{setForm({delName:name,delAction:action});setModal("confirmDelete");};
   const saveTask=()=>{const dateKey=form.taskDate||selISO;up(d=>{if(!d.dailyTasks)d.dailyTasks={};if(!d.dailyTasks[dateKey])d.dailyTasks[dateKey]=[];d.dailyTasks[dateKey].push({id:uid(),siteId:form.siteId,type:form.type,notes:form.notes||"משימה",status:"todo",image:form.image||"",billable:""});});setModal(null);setForm({});};
   const editTask=()=>{const dy=form.editTaskDate;const tid=form.editTaskId;if(!dy||!tid)return;up(d=>{const t=(d.dailyTasks?.[dy]||[]).find(x=>x.id===tid);if(t){t.notes=form.notes||t.notes;t.image=form.image||"";if(form.siteId!==undefined){t.siteId=form.siteId;t.type=allSites.find(s=>s.id===form.siteId)?.type||"";}}});setModal(null);setForm({});};
   const saveReminder=()=>{if(!form.notes||!form.notes.trim())return;up(d=>{if(!d.dailyTasks)d.dailyTasks={};if(!d.dailyTasks[todayISO])d.dailyTasks[todayISO]=[];d.dailyTasks[todayISO].push({id:uid(),siteId:"",type:"",notes:form.notes.trim(),status:"todo",image:form.image||"",billable:""});});setModal(null);setForm({});};
@@ -556,7 +559,7 @@ function App(){
         {reminders.slice(0,6).map((t,i)=><div key={t.id+"_"+i} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:8,background:C.cardA,marginBottom:6,border:"1px solid "+C.bdr}}>
           <span onClick={()=>togTask(t.date,t.id)} style={{fontSize:22,cursor:"pointer"}}>{"⬜"}</span>
           <span onClick={()=>{setForm({editTaskId:t.id,editTaskDate:t.date,notes:t.notes,image:t.image||""});setModal("editReminder");}} style={{fontSize:14,color:C.blu,cursor:"pointer"}}>{"✏️"}</span>
-          <span onClick={()=>delTask(t.date,t.id)} style={{fontSize:14,color:C.red,cursor:"pointer"}}>{"🗑"}</span>
+          <span onClick={()=>confirmDel(t.notes||"משימה זו",()=>delTask(t.date,t.id))} style={{fontSize:14,color:C.red,cursor:"pointer"}}>{"🗑"}</span>
           <div style={{flex:1,textAlign:"right"}}>
             <div style={{fontSize:14,fontWeight:500}}>{t.notes}</div>
           </div>
@@ -861,55 +864,30 @@ function App(){
         </div>}
       </div>
 
-      {/* Day overview - quick stats grid */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:6,marginBottom:12}}>
-        <div onClick={()=>setDailyTab("tasks")} style={{background:openTasks>0?"#fff3cd":C.wht,borderRadius:10,border:"1px solid "+(openTasks>0?C.org:C.bdr),padding:"10px 4px",textAlign:"center",cursor:"pointer"}}>
-          <div style={{fontSize:18}}>{"✅"}</div>
-          <div style={{fontSize:18,fontWeight:700,color:openTasks>0?C.org:C.txtM}}>{doneTasks+"/"+tasks.length}</div>
-          <div style={{fontSize:9,color:C.txtM}}>{"משימות"}</div>
-        </div>
-        <div onClick={()=>setDailyTab("workers")} style={{background:presentCount>0?C.grnP:C.wht,borderRadius:10,border:"1px solid "+(presentCount>0?C.grn:C.bdr),padding:"10px 4px",textAlign:"center",cursor:"pointer"}}>
-          <div style={{fontSize:18}}>{"🧑"}</div>
-          <div style={{fontSize:18,fontWeight:700,color:presentCount>0?C.grn:C.txtM}}>{presentCount}</div>
-          <div style={{fontSize:9,color:C.txtM}}>{"נוכחים"}</div>
-        </div>
-        <div onClick={()=>setDailyTab("meetings")} style={{background:dayMeetings.length>0?C.purpB:C.wht,borderRadius:10,border:"1px solid "+(dayMeetings.length>0?C.purp:C.bdr),padding:"10px 4px",textAlign:"center",cursor:"pointer"}}>
-          <div style={{fontSize:18}}>{"📅"}</div>
-          <div style={{fontSize:18,fontWeight:700,color:dayMeetings.length>0?C.purp:C.txtM}}>{dayMeetings.length}</div>
-          <div style={{fontSize:9,color:C.txtM}}>{"פגישות"}</div>
-        </div>
-        <div onClick={()=>setDailyTab("trips")} style={{background:dayTrips.length>0?C.purpB:C.wht,borderRadius:10,border:"1px solid "+(dayTrips.length>0?C.purp:C.bdr),padding:"10px 4px",textAlign:"center",cursor:"pointer"}}>
-          <div style={{fontSize:18}}>{"🚗"}</div>
-          <div style={{fontSize:18,fontWeight:700,color:dayTrips.length>0?C.purp:C.txtM}}>{dayTrips.length}</div>
-          <div style={{fontSize:9,color:C.txtM}}>{"נסיעות"}</div>
-        </div>
+      {/* Quick action: prominent camera + small settings */}
+      <div style={{display:"flex",gap:6,marginBottom:dayMeetings.length>0?8:12}}>
+        <button onClick={()=>{setExpImg(null);setExpStep(0);setForm({});setModal("quickPhoto");}} style={{flex:1,padding:14,borderRadius:12,border:"none",background:C.hdr,color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          <span style={{fontSize:20}}>📸</span>{"צלם תמונה"}
+        </button>
+        <button onClick={()=>setModal("dayActions")} style={{padding:"14px 16px",borderRadius:12,border:"1.5px solid "+C.bdr,background:"#fff",color:C.txtM,fontSize:18,cursor:"pointer",fontFamily:"inherit"}}>
+          {"⚙️"}
+        </button>
       </div>
 
-      {/* At-a-glance: today's sites + meetings preview */}
-      {(assigns.length>0 || dayMeetings.length>0 || daySubs.length>0) && <div style={{background:C.wht,borderRadius:12,border:"1px solid "+C.bdr,padding:"10px 12px",marginBottom:12}}>
-        <div style={{fontSize:11,fontWeight:700,color:C.txtM,marginBottom:6}}>{"📋 סדר היום:"}</div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-          {assigns.map(a=><span key={a.siteId} style={{padding:"4px 10px",borderRadius:14,fontSize:12,fontWeight:600,background:a.type==="m"?C.orgB:C.grnP,color:a.type==="m"?C.org:C.grn}}>{(a.type==="m"?"🔧 ":"🌱 ")+sn(a.siteId)}</span>)}
-          {daySubs.map(s=><span key={s.id} style={{padding:"4px 10px",borderRadius:14,fontSize:12,fontWeight:600,background:C.bluB,color:C.blu}}>{"🔨 "+s.name}</span>)}
-          {dayMeetings.map(m=><span key={m.id} style={{padding:"4px 10px",borderRadius:14,fontSize:12,fontWeight:600,background:C.purpB,color:C.purp}}>{"📅 "+(m.time||"")+" "+meetingLabel(m)}</span>)}
-        </div>
+      {/* Today's meetings - prominent strip if any */}
+      {dayMeetings.length>0 && <div style={{background:C.purpB,border:"2px solid "+C.purp,borderRadius:12,padding:10,marginBottom:12}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.purp,marginBottom:6,textAlign:"right"}}>{"📅 פגישות היום"}</div>
+        {dayMeetings.map(m=>{
+          const meetingSite=[...(data.maintenanceSites||[]),...(data.devSites||[])].find(s=>s.id===m.siteId);
+          return <div key={m.id} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",background:"#fff",borderRadius:8,marginBottom:4,border:"1px solid "+C.purp}}>
+            <span style={{fontSize:14,fontWeight:700,color:C.purp}}>{m.time||""}</span>
+            <div style={{flex:1,textAlign:"right",fontSize:12}}>
+              <div style={{fontWeight:600}}>{meetingSite?meetingSite.name:m.customPlace||"פגישה"}</div>
+              {m.notes && <div style={{fontSize:11,color:C.txtM}}>{m.notes}</div>}
+            </div>
+          </div>;
+        })}
       </div>}
-
-      {/* Quick action buttons */}
-      <div style={{display:"flex",gap:6,marginBottom:12}}>
-        <button onClick={()=>{setExpImg(null);setExpStep(0);setForm({});setModal("quickPhoto");}} style={{flex:1,padding:12,borderRadius:12,border:"none",background:C.hdr,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
-          <span style={{fontSize:18}}>📸</span>{"צלם"}
-        </button>
-        <button onClick={()=>{setForm({notes:"",siteId:"",type:"",image:"",taskDate:selISO});setModal("addTask");}} style={{flex:1,padding:12,borderRadius:12,border:"none",background:C.grn,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
-          <span style={{fontSize:18}}>➕</span>{"משימה"}
-        </button>
-        <button onClick={()=>{setForm({tripDate:selISO,tripPlace:"",tripNote:""});setModal("addTrip");}} style={{flex:1,padding:12,borderRadius:12,border:"none",background:C.purp,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
-          <span style={{fontSize:18}}>🚗</span>{"נסיעה"}
-        </button>
-        <button onClick={()=>{setForm({meetingSiteId:"",meetingDate:selISO,meetingTime:"",meetingNotes:"",meetingCustomPlace:""});setModal("addMeeting");}} style={{flex:1,padding:12,borderRadius:12,border:"none",background:C.purp,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
-          <span style={{fontSize:18}}>📅</span>{"פגישה"}
-        </button>
-      </div>
 
       <div style={{display:"flex",background:C.cardA,borderRadius:12,padding:3,marginBottom:14,gap:2,overflow:"auto"}}>{tabs.map(t=><button key={t.key} onClick={()=>setDailyTab(t.key)} style={{flex:"0 0 auto",minWidth:60,padding:"9px 8px",borderRadius:10,border:"none",cursor:"pointer",fontSize:11,fontWeight:dailyTab===t.key?700:400,background:dailyTab===t.key?C.grn:"transparent",color:dailyTab===t.key?"#fff":C.txtM,fontFamily:"inherit",whiteSpace:"nowrap",position:"relative"}}>{t.icon} {t.label}{t.count>0 && <span style={{marginInlineStart:4,padding:"1px 5px",borderRadius:8,fontSize:9,background:dailyTab===t.key?"rgba(255,255,255,0.3)":C.grn,color:"#fff",fontWeight:700}}>{t.count}</span>}</button>)}</div>
 
@@ -932,7 +910,6 @@ function App(){
 
       {/* TASKS */}
       {dailyTab==="tasks"&&<div>
-        <button onClick={()=>{setForm({notes:"",siteId:"",type:"",image:""});setModal("addTask");}} style={{width:"100%",padding:"16px",borderRadius:12,border:"none",background:C.grn,color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>{"+ משימה חדשה"}</button>
 
         {(()=>{const todaySubs=(data.subContracts||[]).filter(s=>(s.dates||[]).includes(dy));if(!todaySubs.length)return null;return <div style={{background:C.bluB,borderRadius:14,border:"2px solid "+C.blu,padding:12,marginBottom:12}}>
           <div style={{fontSize:13,fontWeight:700,color:C.blu,marginBottom:8}}>{"🔨 קבלני משנה היום"}</div>
@@ -961,7 +938,7 @@ function App(){
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
                 <span onClick={()=>togTask(dy,t.id)} style={{fontSize:22,cursor:"pointer"}}>{t.status==="done"?"✅":"⬜"}</span>
                 <span onClick={()=>{setForm({editTaskId:t.id,editTaskDate:dy,notes:t.notes,siteId:t.siteId||"",image:t.image||""});setModal("editTask");}} style={{fontSize:14,color:C.blu,cursor:"pointer"}}>{"✏️"}</span>
-                <span onClick={()=>delTask(dy,t.id)} style={{fontSize:14,color:C.red,cursor:"pointer"}}>🗑</span>
+                <span onClick={()=>confirmDel(t.notes||"משימה זו",()=>delTask(dy,t.id))} style={{fontSize:14,color:C.red,cursor:"pointer"}}>🗑</span>
               </div>
               <span onClick={()=>togTask(dy,t.id)} style={{fontSize:14,fontWeight:500,textDecoration:t.status==="done"?"line-through":"none",textAlign:"right",flex:1,cursor:"pointer"}}>{t.notes}</span>
             </div>
@@ -971,53 +948,93 @@ function App(){
 
         {assigns.length===0&&tasks.filter(t=>!t.siteId).length===0&&<div style={{background:C.wht,borderRadius:14,padding:20,textAlign:"center",border:"1px solid "+C.bdr}}><span style={{color:C.txtL,fontSize:14}}>{"אין משימות ליום"}</span></div>}
 
-        {assigns.map(a=>{const st=tasks.filter(t=>t.siteId===a.siteId);const ic=a.type==="m"?"🔧":"🌱";
-          // Check if has saved log
-          const savedLog=((data.dailyLogs||{})[dy]||{})[a.siteId]||{summary:"",extras:[],reminders:[]};
-          const hasLog=savedLog.summary||(savedLog.extras||[]).length>0||(savedLog.reminders||[]).length>0;
-          return <div key={a.siteId} style={{background:C.wht,borderRadius:14,border:"1px solid "+(hasLog?C.grn:C.bdr),padding:14,marginBottom:10}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-            <button onClick={()=>{
-              setForm({
-                logSiteId:a.siteId,
-                logDate:dy,
-                logSummary:savedLog.summary||"",
-                logExtras:[...(savedLog.extras||[])],
-                logReminders:[...(savedLog.reminders||[])]
-              });
-              setModal("siteLog");
-            }} style={{background:C.grn,border:"none",color:"#fff",cursor:"pointer",fontSize:16,fontFamily:"inherit",fontWeight:700,padding:"6px 14px",borderRadius:10,lineHeight:1}}>+</button>
-            <span onClick={()=>{setForm({siteId:a.siteId});setSiteDetailTab("overview");setModal("siteDetail");}} style={{fontWeight:700,fontSize:16,cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"}}>{ic+" "+sn(a.siteId)}{hasLog?" ✓":""}</span>
-          </div>
+        {/* Sites - collapsed cards, expand one at a time */}
+        {assigns.length>0 && (()=>{
+          // Compute progress
+          const totalSites=assigns.length;
+          const reportedSites=assigns.filter(a=>{
+            const log=((data.dailyLogs||{})[dy]||{})[a.siteId];
+            return log && (log.summary||(log.extras||[]).length>0);
+          }).length;
+          return <div style={{background:C.cardA,borderRadius:10,padding:"8px 12px",marginBottom:10,fontSize:12,fontWeight:700,color:C.txtM,textAlign:"right",border:"1px solid "+C.bdr}}>
+            {"📋 דווח: "+reportedSites+"/"+totalSites+" אתרים"}
+            {reportedSites===totalSites && totalSites>0 && <span style={{color:C.grn,marginInlineStart:6}}>{"✓ הכל דווח!"}</span>}
+          </div>;
+        })()}
 
-          {/* Next visit notes - if any */}
-          {(data.nextVisitNotes?.[a.siteId]||[]).filter(n=>!n.done).length>0 && <div style={{background:C.purpB,borderRadius:8,padding:"8px 10px",marginBottom:8,border:"1px solid "+C.purp}}>
-            <div style={{fontSize:11,fontWeight:700,color:C.purp,marginBottom:4}}>{"💡 הערות לטיפול"}</div>
-            {(data.nextVisitNotes[a.siteId]||[]).filter(n=>!n.done).map(n=><div key={n.id} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,padding:"3px 0"}}>
-              <span onClick={()=>togNextVisit(a.siteId,n.id)} style={{cursor:"pointer"}}>⬜</span>
-              <span style={{flex:1,textAlign:"right"}}>{n.text}</span>
-            </div>)}
-          </div>}
-          {st.length===0&&<p style={{textAlign:"center",color:C.txtL}}>{"אין משימות"}</p>}
-          {st.map(t=><div key={t.id} style={{padding:"10px 14px",borderRadius:10,marginBottom:6,background:t.status==="done"?C.grnP:C.cardA,border:"1px solid "+(t.status==="done"?C.grnL:C.bdr)}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-              <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                <span onClick={()=>togTask(dy,t.id)} style={{fontSize:22,cursor:"pointer"}}>{t.status==="done"?"✅":"⬜"}</span>
-                <span onClick={()=>{setForm({editTaskId:t.id,editTaskDate:dy,notes:t.notes,siteId:t.siteId||"",image:t.image||""});setModal("editTask");}} style={{fontSize:14,color:C.blu,cursor:"pointer"}}>{"✏️"}</span>
-                <span onClick={()=>delTask(dy,t.id)} style={{fontSize:14,color:C.red,cursor:"pointer"}}>🗑</span>
+        {assigns.map((a,siteIdx)=>{
+          const st=tasks.filter(t=>t.siteId===a.siteId);
+          const ic=a.type==="m"?"🔧":"🌱";
+          const savedLog=((data.dailyLogs||{})[dy]||{})[a.siteId]||{summary:"",extras:[],reminders:[]};
+          const hasLog=!!(savedLog.summary||(savedLog.extras||[]).length>0);
+          const openTaskCount=st.filter(t=>t.status!=="done").length;
+          const doneTaskCount=st.filter(t=>t.status==="done").length;
+          const nextNotes=(data.nextVisitNotes?.[a.siteId]||[]).filter(n=>!n.done);
+          const openLogModal=()=>{
+            setForm({
+              logSiteId:a.siteId,
+              logDate:dy,
+              logSummary:savedLog.summary||"",
+              logExtras:[...(savedLog.extras||[])],
+              logReminders:[...(savedLog.reminders||[])]
+            });
+            setModal("siteLog");
+          };
+          return <div key={a.siteId} style={{background:C.wht,borderRadius:14,border:"2px solid "+(hasLog?C.grn:openTaskCount>0?C.org:C.bdr),padding:0,marginBottom:10,overflow:"hidden"}}>
+            {/* Header */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 16px",background:hasLog?C.grnP:openTaskCount>0?"#fff7ed":"#fff",borderBottom:"1px solid "+C.bdr}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                {hasLog && <span style={{fontSize:11,padding:"3px 9px",borderRadius:10,background:C.grn,color:"#fff",fontWeight:700}}>{"✓ דווח"}</span>}
+                {!hasLog && openTaskCount>0 && <span style={{fontSize:11,padding:"3px 9px",borderRadius:10,background:C.org,color:"#fff",fontWeight:700}}>{openTaskCount+" פתוחות"}</span>}
               </div>
-              <span onClick={()=>togTask(dy,t.id)} style={{fontSize:14,fontWeight:500,textDecoration:t.status==="done"?"line-through":"none",textAlign:"right",flex:1,cursor:"pointer"}}>{t.notes}</span>
+              <span onClick={()=>{setForm({siteId:a.siteId});setSiteDetailTab("overview");setModal("siteDetail");}} style={{fontWeight:700,fontSize:17,cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"}}>{ic+" "+sn(a.siteId)}</span>
             </div>
-            {t.image && <img src={t.image} onClick={e=>{e.stopPropagation();setZoomImg(t.image);}} style={{width:"100%",borderRadius:8,marginTop:8,maxHeight:200,objectFit:"cover",cursor:"zoom-in"}} alt=""/>}
-            {t.status==="done" && !t.billable && <button onClick={()=>{setForm({taskDay:dy,taskId:t.id,extras:""});setModal("billingForm");}} style={{marginTop:8,width:"100%",padding:"8px",borderRadius:8,border:"1px solid "+C.org,background:"#fff3cd",color:C.org,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"💰 שלח לחיוב"}</button>}
-            {t.billable==="ready" && <div style={{marginTop:8,padding:"8px 10px",borderRadius:8,background:"#fff3cd",border:"1px solid "+C.org,fontSize:12}}>
-              <div style={{fontWeight:700,color:C.org,marginBottom:4}}>{"💰 מוכן לחיוב"}</div>
-              {t.billingExtras && <div style={{fontSize:11,color:C.txtM,marginBottom:4}}>{"תוספות: "+t.billingExtras}</div>}
-              <button onClick={()=>markInvoiced(dy,t.id)} style={{padding:"4px 10px",borderRadius:6,border:"none",background:C.org,color:"#fff",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"סמן כחויב ✓"}</button>
-            </div>}
-            {t.billable==="invoiced" && <div style={{marginTop:6,fontSize:11,color:C.grn,fontWeight:600}}>{"✓ חויב"}</div>}
-          </div>)}
-        </div>;})}
+
+            {/* Content */}
+            <div style={{padding:"12px 16px",background:"#fff"}}>
+
+              {/* Tasks list - both done and pending */}
+              {st.length>0 && <div style={{marginBottom:10}}>
+                {st.map(t=><div key={t.id} style={{padding:"7px 10px",borderRadius:8,marginBottom:4,background:t.status==="done"?C.grnP:C.cardA,border:"1px solid "+(t.status==="done"?C.grnL:C.bdr)}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      <span onClick={()=>togTask(dy,t.id)} style={{fontSize:18,cursor:"pointer"}}>{t.status==="done"?"✅":"⬜"}</span>
+                      <span onClick={()=>{setForm({editTaskId:t.id,editTaskDate:dy,notes:t.notes,siteId:t.siteId||"",image:t.image||""});setModal("editTask");}} style={{fontSize:11,color:C.blu,cursor:"pointer"}}>{"✏️"}</span>
+                      <span onClick={()=>confirmDel(t.notes||"משימה זו",()=>delTask(dy,t.id))} style={{fontSize:11,color:C.red,cursor:"pointer"}}>🗑</span>
+                    </div>
+                    <span onClick={()=>togTask(dy,t.id)} style={{fontSize:13,fontWeight:500,textDecoration:t.status==="done"?"line-through":"none",textAlign:"right",flex:1,cursor:"pointer",color:t.status==="done"?C.txtM:C.txt}}>{t.notes}</span>
+                  </div>
+                  {t.image && <img src={t.image} onClick={e=>{e.stopPropagation();setZoomImg(t.image);}} style={{width:"100%",borderRadius:6,marginTop:6,maxHeight:160,objectFit:"cover",cursor:"zoom-in"}} alt=""/>}
+                </div>)}
+              </div>}
+
+              {/* Next visit notes */}
+              {nextNotes.length>0 && <div style={{background:C.purpB,borderRadius:8,padding:"8px 10px",marginBottom:10,border:"1px solid "+C.purp}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.purp,marginBottom:4}}>{"💡 הערות לטיפול"}</div>
+                {nextNotes.map(n=><div key={n.id} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,padding:"3px 0"}}>
+                  <span onClick={()=>togNextVisit(a.siteId,n.id)} style={{cursor:"pointer"}}>⬜</span>
+                  <span style={{flex:1,textAlign:"right"}}>{n.text}</span>
+                </div>)}
+              </div>}
+
+              {/* Show saved daily log if exists */}
+              {hasLog && <div style={{background:C.grnP,borderRadius:8,padding:"8px 10px",marginBottom:10,border:"1px solid "+C.grn}}>
+                {savedLog.summary && <div style={{fontSize:12,marginBottom:4}}>
+                  <span style={{fontWeight:700,color:C.grn}}>{"📝 "}</span>{savedLog.summary}
+                </div>}
+                {(savedLog.extras||[]).filter(e=>e.desc).length>0 && <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
+                  {savedLog.extras.filter(e=>e.desc).map((ex,i)=><span key={i} style={{fontSize:10,padding:"3px 7px",background:"#fff7ed",color:C.org,borderRadius:10,border:"1px solid "+C.org,fontWeight:600}}>{"💰 "+ex.desc+(ex.qty?" · "+ex.qty:"")}</span>)}
+                </div>}
+                {(savedLog.reminders||[]).filter(r=>r.text&&!r.done).length>0 && <div style={{marginTop:6,fontSize:11,color:C.blu}}>
+                  {"🔔 "+savedLog.reminders.filter(r=>r.text&&!r.done).map(r=>r.text).join(" · ")}
+                </div>}
+              </div>}
+
+              {/* Action button */}
+              <button onClick={openLogModal} style={{width:"100%",padding:"10px",borderRadius:10,border:"none",background:hasLog?C.bluB:C.org,color:hasLog?C.blu:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",border:hasLog?"1.5px solid "+C.blu:"none"}}>{hasLog?"✏️ ערוך דיווח":"📝 דווח על האתר"}</button>
+            </div>
+          </div>;
+        })}
       </div>}
 
       {/* TRIPS */}
@@ -1026,7 +1043,7 @@ function App(){
         {dayTrips.length===0 && <div style={{background:C.wht,borderRadius:14,padding:20,textAlign:"center",border:"1px solid "+C.bdr}}><span style={{color:C.txtL}}>{"אין נסיעות"}</span></div>}
         {dayTrips.map(t=><div key={t.id} style={{background:C.wht,borderRadius:14,border:"2px solid "+C.purp,padding:"12px 14px",marginBottom:10}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-            <span onClick={()=>delTrip(dy,t.id)} style={{fontSize:14,color:C.red,cursor:"pointer"}}>🗑</span>
+            <span onClick={()=>confirmDel("נסיעה ל"+(t.place||""),()=>delTrip(dy,t.id))} style={{fontSize:14,color:C.red,cursor:"pointer"}}>🗑</span>
             <div style={{flex:1,textAlign:"right"}}>
               <div style={{fontSize:16,fontWeight:700,marginBottom:t.note?4:0}}>{"🚗 "+t.place}</div>
               {t.note&&<div style={{fontSize:13,color:C.txtM,padding:"6px 10px",background:C.purpB,borderRadius:6}}>{t.note}</div>}
@@ -1043,7 +1060,7 @@ function App(){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
               <span onClick={()=>togMeeting(m.id)} style={{fontSize:22,cursor:"pointer"}}>{m.done?"✅":"⬜"}</span>
-              <span onClick={()=>delMeeting(m.id)} style={{fontSize:14,color:C.red,cursor:"pointer"}}>🗑</span>
+              <span onClick={()=>confirmDel("פגישה",()=>delMeeting(m.id))} style={{fontSize:14,color:C.red,cursor:"pointer"}}>🗑</span>
             </div>
             <div style={{flex:1,textAlign:"right"}}>
               <div style={{fontSize:16,fontWeight:700,marginBottom:4}}>{"📅 "+(m.time||"")+" "+meetingLabel(m)}</div>
@@ -1141,7 +1158,7 @@ function App(){
           </div>
           {catItems.map(it=><div key={it.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",borderRadius:6,background:C.cardA,marginBottom:4,fontSize:12}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
-              <span onClick={()=>delInvItem(it.id)} style={{cursor:"pointer",color:C.red,fontSize:14}}>{"✕"}</span>
+              <span onClick={()=>confirmDel(it.name||"פריט",()=>delInvItem(it.id))} style={{cursor:"pointer",color:C.red,fontSize:14}}>{"✕"}</span>
               {it.defaultPrice>0 && <span style={{padding:"1px 6px",borderRadius:8,fontSize:10,background:"#fff3cd",color:C.org,fontWeight:600}}>{"₪"+it.defaultPrice}</span>}
               {it.size && <span style={{padding:"1px 6px",borderRadius:8,fontSize:10,background:C.bluB,color:C.blu}}>{it.size}</span>}
             </div>
@@ -1293,7 +1310,183 @@ function App(){
     </div></div>;
 
 
+    // ─── DAY ACTIONS MENU (hidden actions) ───
+    if(modal==="dayActions"){
+      return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:420,padding:18}}>
+        <h3 style={{textAlign:"right",marginBottom:14,fontSize:17}}>{"⚙️ פעולות נוספות"}</h3>
+
+        <button onClick={()=>setModal("addToDay")} style={{width:"100%",padding:14,marginBottom:8,borderRadius:12,border:"2px solid "+C.grn,background:C.grnP,color:C.grn,cursor:"pointer",fontFamily:"inherit",textAlign:"right",fontSize:14,fontWeight:700}}>
+          {"➕  הוסף ללוח היום"}
+        </button>
+
+        <button onClick={()=>{setForm({meetingSiteId:"",meetingDate:selISO,meetingTime:"",meetingNotes:"",meetingCustomPlace:""});setModal("addMeeting");}} style={{width:"100%",padding:14,marginBottom:8,borderRadius:12,border:"2px solid "+C.purp,background:C.purpB,color:C.purp,cursor:"pointer",fontFamily:"inherit",textAlign:"right",fontSize:14,fontWeight:700}}>
+          {"📅  הוסף פגישה"}
+        </button>
+
+        <button onClick={()=>{setForm({tripDate:selISO,tripPlace:"",tripNote:""});setModal("addTrip");}} style={{width:"100%",padding:14,marginBottom:8,borderRadius:12,border:"2px solid "+C.purp,background:C.purpB,color:C.purp,cursor:"pointer",fontFamily:"inherit",textAlign:"right",fontSize:14,fontWeight:700}}>
+          {"🚗  הוסף נסיעה"}
+        </button>
+
+        <button onClick={()=>{setDailyTab("workers");setModal(null);}} style={{width:"100%",padding:14,marginBottom:8,borderRadius:12,border:"2px solid "+C.bdr,background:C.cardA,color:C.txt,cursor:"pointer",fontFamily:"inherit",textAlign:"right",fontSize:14,fontWeight:700}}>
+          {"🧑  סמן נוכחות עובדים"}
+        </button>
+
+        <button onClick={close} style={{...sb,background:C.cardA,color:C.txt,marginTop:6}}>{"ביטול"}</button>
+      </div></div>;
+    }
+
+    // ─── ADD TO DAY MENU ───
+    if(modal==="addToDay"){
+      return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:420,padding:18}}>
+        <h3 style={{textAlign:"right",marginBottom:14,fontSize:17}}>{"➕ הוסף ללוח היום"}</h3>
+        <div style={{fontSize:11,color:C.txtM,marginBottom:14,textAlign:"right"}}>{fmtFull(new Date(selISO))}</div>
+
+        <button onClick={()=>{setModal("addSiteToDay");setForm({});}} style={{width:"100%",padding:14,marginBottom:8,borderRadius:12,border:"2px solid "+C.grn,background:C.grnP,color:C.grn,cursor:"pointer",fontFamily:"inherit",textAlign:"right"}}>
+          <div style={{fontSize:15,fontWeight:700,marginBottom:3}}>{"🏠 הוסף לקוח/אתר ליום"}</div>
+          <div style={{fontSize:11,color:C.txtM}}>{"לקוח שלא היה משובץ - יתווסף לרשימה של היום"}</div>
+        </button>
+
+        <button onClick={()=>{setForm({notes:"",siteId:"",type:"",image:"",taskDate:selISO});setModal("addTask");}} style={{width:"100%",padding:14,marginBottom:8,borderRadius:12,border:"2px solid "+C.blu,background:C.bluB,color:C.blu,cursor:"pointer",fontFamily:"inherit",textAlign:"right"}}>
+          <div style={{fontSize:15,fontWeight:700,marginBottom:3}}>{"📋 משימה כללית"}</div>
+          <div style={{fontSize:11,color:C.txtM}}>{"משימה כללית - לקנות חומרים, התקשרויות וכד'"}</div>
+        </button>
+
+        <button onClick={()=>{setForm({extendSiteId:"",extendDays:1});setModal("extendProject");}} style={{width:"100%",padding:14,marginBottom:8,borderRadius:12,border:"2px solid "+C.org,background:"#fff7ed",color:C.org,cursor:"pointer",fontFamily:"inherit",textAlign:"right"}}>
+          <div style={{fontSize:15,fontWeight:700,marginBottom:3}}>{"🔄 הארך פרויקט קיים"}</div>
+          <div style={{fontSize:11,color:C.txtM}}>{"פרויקט שלא נגמר - להוסיף עוד ימים"}</div>
+        </button>
+
+        <button onClick={close} style={{...sb,background:C.cardA,color:C.txt,marginTop:6}}>{"ביטול"}</button>
+      </div></div>;
+    }
+
+    // ─── ADD SITE TO DAY ───
+    if(modal==="addSiteToDay"){
+      const allSites=[...(data.maintenanceSites||[]).map(s=>({...s,_isMaint:true})),...(data.devSites||[]).filter(s=>s.status!=="done").map(s=>({...s,_isMaint:false}))];
+      // Find sites already assigned today (correct structure: weekAssign[ISO date] = [{siteId, type}])
+      const todayAssigns=(data.weekAssign||{})[selISO]||[];
+      const alreadyAssigned=new Set(todayAssigns.map(a=>a.siteId));
+      const availableSites=allSites.filter(s=>!alreadyAssigned.has(s.id));
+      const selectedSiteId=form.targetSiteId||"";
+
+      const doAdd=()=>{
+        if(!selectedSiteId)return;
+        // Find the site type
+        const isMaint=(data.maintenanceSites||[]).some(s=>s.id===selectedSiteId);
+        const type=isMaint?"m":"d";
+        up(d=>{
+          if(!d.weekAssign)d.weekAssign={};
+          if(!d.weekAssign[selISO])d.weekAssign[selISO]=[];
+          // Don't add duplicate
+          if(!d.weekAssign[selISO].some(a=>a.siteId===selectedSiteId)){
+            d.weekAssign[selISO].push({siteId:selectedSiteId,type});
+          }
+        });
+        setModal(null);
+        setForm({});
+      };
+
+      return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:480,padding:18,maxHeight:"90vh",overflowY:"auto"}}>
+        <h3 style={{textAlign:"right",marginBottom:6,fontSize:17}}>{"🏠 הוסף לקוח/אתר ליום"}</h3>
+        <div style={{fontSize:11,color:C.txtM,marginBottom:14,textAlign:"right"}}>{fmtFull(new Date(selISO))}</div>
+
+        <label style={{...lb,fontSize:12}}>{"🏠 בחר לקוח / אתר:"}</label>
+        {availableSites.length===0 ? <div style={{padding:14,textAlign:"center",color:C.txtM,fontSize:12}}>{"כל הלקוחות כבר משובצים היום"}</div> : <div style={{maxHeight:380,overflowY:"auto",border:"1px solid "+C.bdr,borderRadius:10,marginBottom:14}}>
+          {availableSites.map(s=><div key={s.id} onClick={()=>setForm({...form,targetSiteId:s.id})} style={{padding:"12px 14px",borderBottom:"1px solid "+C.bdr,cursor:"pointer",background:selectedSiteId===s.id?C.grnP:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:13,color:selectedSiteId===s.id?C.grn:C.txtL,fontWeight:700}}>{selectedSiteId===s.id?"✓":""}</span>
+            <span style={{fontWeight:selectedSiteId===s.id?700:500,fontSize:14,textAlign:"right"}}>{(s._isMaint?"🔧 ":"🌱 ")+s.name}</span>
+          </div>)}
+        </div>}
+
+        <button onClick={doAdd} disabled={!selectedSiteId} style={{...sb,background:selectedSiteId?C.grn:C.bdr,opacity:selectedSiteId?1:0.5}}>{"הוסף ליום"}</button>
+
+        <button onClick={()=>{setModal("addToDay");}} style={{...sb,background:C.cardA,color:C.txt,marginTop:6}}>{"← חזור"}</button>
+      </div></div>;
+    }
+
+    // ─── EXTEND PROJECT ───
+    if(modal==="extendProject"){
+      // Find sites currently assigned this day (correct structure: weekAssign[ISO date] = [{siteId, type}])
+      const todayAssigns=(data.weekAssign||{})[selISO]||[];
+      const allSites=[...(data.maintenanceSites||[]),...(data.devSites||[])];
+      const todayAssignedSites=todayAssigns.map(a=>allSites.find(s=>s.id===a.siteId)).filter(Boolean);
+
+      const selSite=form.extendSiteId||"";
+      const days=form.extendDays||1;
+
+      const doExtend=()=>{
+        if(!selSite||!days)return;
+        const isMaint=(data.maintenanceSites||[]).some(s=>s.id===selSite);
+        const type=isMaint?"m":"d";
+        // Add the site to the next N days
+        up(d=>{
+          if(!d.weekAssign)d.weekAssign={};
+          for(let i=1;i<=days;i++){
+            const futureDate=new Date(selISO);
+            futureDate.setDate(futureDate.getDate()+i);
+            const futureISO=futureDate.toISOString().slice(0,10);
+            if(!d.weekAssign[futureISO])d.weekAssign[futureISO]=[];
+            // Don't add duplicate
+            if(!d.weekAssign[futureISO].some(a=>a.siteId===selSite)){
+              d.weekAssign[futureISO].push({siteId:selSite,type});
+            }
+          }
+        });
+        setModal(null);
+        setForm({});
+      };
+
+      return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:480,padding:18}}>
+        <h3 style={{textAlign:"right",marginBottom:6,fontSize:17}}>{"🔄 הארך פרויקט"}</h3>
+        <div style={{fontSize:11,color:C.txtM,marginBottom:14,textAlign:"right"}}>{"בחר פרויקט מהיום והוסף אותו לימים הקרובים"}</div>
+
+        {todayAssignedSites.length===0 ? <div style={{padding:20,textAlign:"center",background:"#fee",borderRadius:10,marginBottom:12,color:C.red,fontSize:13}}>
+          {"אין פרויקטים משובצים ביום זה"}
+        </div> : <React.Fragment>
+
+        <label style={{...lb,fontSize:12}}>{"בחר פרויקט/אתר מהיום:"}</label>
+        <div style={{maxHeight:200,overflowY:"auto",border:"1px solid "+C.bdr,borderRadius:10,marginBottom:14}}>
+          {todayAssignedSites.map(s=>{
+            const isMaint=(data.maintenanceSites||[]).some(m=>m.id===s.id);
+            return <div key={s.id} onClick={()=>setForm({...form,extendSiteId:s.id})} style={{padding:"10px 12px",borderBottom:"1px solid "+C.bdr,cursor:"pointer",background:selSite===s.id?C.grnP:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:11,color:C.txtL}}>{selSite===s.id?"✓":""}</span>
+              <span style={{fontWeight:selSite===s.id?700:500,fontSize:13}}>{(isMaint?"🔧 ":"🌱 ")+s.name}</span>
+            </div>;
+          })}
+        </div>
+
+        <label style={{...lb,fontSize:12}}>{"להאריך לכמה ימים נוספים:"}</label>
+        <div style={{display:"flex",gap:6,marginBottom:14}}>
+          {[1,2,3,4,5].map(n=><button key={n} onClick={()=>setForm({...form,extendDays:n})} style={{flex:1,padding:"10px 4px",borderRadius:10,border:"1.5px solid "+(days===n?C.grn:C.bdr),background:days===n?C.grnP:"#fff",color:days===n?C.grn:C.txt,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:13}}>{n+(n===1?" יום":" ימים")}</button>)}
+        </div>
+
+        <button onClick={doExtend} disabled={!selSite} style={{...sb,background:selSite?C.grn:C.bdr,opacity:selSite?1:0.5}}>{"הארך"}</button>
+        </React.Fragment>}
+
+        <button onClick={()=>{setModal("addToDay");}} style={{...sb,background:C.cardA,color:C.txt,marginTop:6}}>{"← חזור"}</button>
+      </div></div>;
+    }
+
+
     // ─── SITE DAILY LOG (per-site daily summary modal) ───
+    // ─── GENERIC DELETE CONFIRMATION ───
+    if(modal==="confirmDelete"){
+      const itemName=form.delName||"";
+      const onConfirm=form.delAction;
+      return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:380,padding:20}}>
+        <div style={{textAlign:"center",marginBottom:14}}>
+          <div style={{fontSize:36,marginBottom:8}}>{"⚠️"}</div>
+          <div style={{fontSize:16,fontWeight:700,marginBottom:6}}>{"האם למחוק?"}</div>
+          {itemName && <div style={{fontSize:14,color:C.txtM,padding:"8px 12px",background:C.cardA,borderRadius:8,marginTop:8}}>{itemName}</div>}
+          <div style={{fontSize:11,color:C.txtL,marginTop:10}}>{"פעולה זו לא ניתנת לביטול"}</div>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={close} style={{flex:1,padding:12,borderRadius:10,border:"1.5px solid "+C.bdr,background:"#fff",color:C.txt,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"ביטול"}</button>
+          <button onClick={()=>{if(typeof onConfirm==="function")onConfirm();setModal(null);setForm({});}} style={{flex:1,padding:12,borderRadius:10,border:"none",background:C.red,color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"🗑 מחק"}</button>
+        </div>
+      </div></div>;
+    }
+
     if(modal==="siteLog"){
       const siteId=form.logSiteId;
       const dyKey=form.logDate||todayISO;
@@ -1871,84 +2064,156 @@ function App(){
 
     // ─── ALL ORDERS (centralized view) ───
     if(modal==="allOrders"){
-      const allOrders=[];
       const getDestInfo=(pid,o)=>{
-        if(pid==="__test__")return {label:"🧪 טסט / ניסיון",color:C.purp};
-        if(pid==="__free__")return {label:"✏️ "+(o.note||"חופשי"),color:C.org};
-        // Check if it's a maintenance site
+        if(pid==="__test__")return {label:"🧪 טסט / ניסיון",color:C.purp,icon:"🧪"};
+        if(pid==="__free__")return {label:"✏️ "+(o&&o.note||"חופשי"),color:C.org,icon:"✏️"};
         const mSite=(data.maintenanceSites||[]).find(s=>s.id===pid);
-        if(mSite)return {label:"🌳 "+mSite.name,color:C.blu};
-        // Check if it's a dev project
+        if(mSite)return {label:"🌳 "+mSite.name,color:C.blu,icon:"🌳",name:mSite.name};
         const dSite=(data.devSites||[]).find(s=>s.id===pid);
-        if(dSite)return {label:"🌱 "+dSite.name,color:C.grn};
-        return {label:"❓ "+sn(pid),color:C.txtM};
+        if(dSite)return {label:"🌱 "+dSite.name,color:C.grn,icon:"🌱",name:dSite.name};
+        return {label:"❓ "+sn(pid),color:C.txtM,icon:"❓"};
       };
-      Object.keys(data.projectOrders||{}).forEach(pid=>{
-        (data.projectOrders[pid]||[]).forEach(o=>{
-          const di=getDestInfo(pid,o);
-          allOrders.push({...o,projectId:pid,projectName:di.label,projectColor:di.color});
+
+      // Selected location to drill into
+      const selectedPid=form.ordersSelectedPid||null;
+
+      // ───── DETAIL VIEW (selected location) ─────
+      if(selectedPid){
+        const orders=(data.projectOrders||{})[selectedPid]||[];
+        const sortedOrders=[...orders].sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+        const di=getDestInfo(selectedPid,orders[0]);
+        // Build summary by item desc
+        const itemSummary={};
+        orders.forEach(o=>{
+          const key=(o.desc||"").trim();
+          if(!key)return;
+          if(!itemSummary[key])itemSummary[key]={count:0,totalAmount:0};
+          itemSummary[key].count++;
+          itemSummary[key].totalAmount+=(+o.amount||0);
         });
+        const summaryItems=Object.entries(itemSummary).sort((a,b)=>b[1].count-a[1].count);
+        const totalAmount=orders.reduce((s,o)=>s+(+o.amount||0),0);
+
+        return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:560,width:"100%",padding:0,maxHeight:"92vh"}}>
+          <div style={{background:di.color,color:"#fff",padding:"14px 18px",position:"sticky",top:0,borderRadius:"16px 16px 0 0",zIndex:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <button onClick={close} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",width:28,height:28,borderRadius:"50%",cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>{"×"}</button>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:18,fontWeight:700}}>{di.label}</div>
+                <div style={{fontSize:11,opacity:0.85}}>{orders.length+" הזמנות · ₪"+totalAmount.toLocaleString()}</div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{padding:"14px 16px",overflowY:"auto",maxHeight:"calc(92vh - 70px)"}}>
+            <button onClick={()=>setForm({...form,ordersSelectedPid:null})} style={{padding:"7px 12px",borderRadius:8,border:"1px solid "+C.bdr,background:"#fff",color:C.txtM,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>{"← חזור לרשימת מקומות"}</button>
+
+            {/* Summary - all items totaled */}
+            {summaryItems.length>0 && <div style={{background:C.cardA,borderRadius:12,padding:12,marginBottom:14,border:"1px solid "+C.bdr}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:8,textAlign:"right",color:di.color}}>{"📊 סיכום כולל"}</div>
+              {summaryItems.map(([name,info],i)=><div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 8px",background:"#fff",borderRadius:6,marginBottom:4,border:"1px solid "+C.bdr}}>
+                <div style={{fontSize:11,color:C.txtM}}>
+                  <span style={{padding:"2px 6px",borderRadius:6,background:di.color+"22",color:di.color,fontWeight:700,marginInlineStart:4}}>{"×"+info.count}</span>
+                  {info.totalAmount>0 && <span style={{fontWeight:700,color:C.txt}}>{"₪"+info.totalAmount.toLocaleString()}</span>}
+                </div>
+                <div style={{flex:1,textAlign:"right",fontSize:13,fontWeight:600}}>{name}</div>
+              </div>)}
+            </div>}
+
+            {/* Orders timeline */}
+            <div style={{fontSize:13,fontWeight:700,marginBottom:8,textAlign:"right",color:di.color}}>{"📅 היסטוריית הזמנות"}</div>
+            {sortedOrders.length===0 && <div style={{textAlign:"center",color:C.txtL,padding:20,fontSize:12}}>{"אין הזמנות"}</div>}
+            {sortedOrders.map(o=>{
+              const statusColors={ordered:{bg:"#fff3cd",bdr:C.org,clr:C.org,label:"📞 הוזמן"},onway:{bg:C.bluB,bdr:C.blu,clr:C.blu,label:"🚛 בדרך"},received:{bg:C.grnP,bdr:C.grn,clr:C.grn,label:"✅ התקבל"}};
+              const sc=statusColors[o.status]||statusColors.ordered;
+              return <div key={o.id} style={{background:"#fff",borderRadius:10,border:"1px solid "+C.bdr,padding:10,marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                  <span style={{padding:"3px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:sc.bg,color:sc.clr,border:"1px solid "+sc.bdr}}>{sc.label}</span>
+                  <div style={{textAlign:"right",flex:1,marginInlineStart:8}}>
+                    <div style={{fontSize:13,fontWeight:700}}>{o.desc}</div>
+                    {o.date && <div style={{fontSize:11,color:C.txtM}}>{fmtFull(o.date)}</div>}
+                  </div>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,color:C.txtM,paddingTop:4}}>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    {o.supplier && <span>{"🏪 "+o.supplier}</span>}
+                    {o.amount>0 && <span style={{fontWeight:700,color:C.txt}}>{"₪"+(+o.amount).toLocaleString()}</span>}
+                  </div>
+                </div>
+                {o.note && <div style={{fontSize:11,color:C.txtM,padding:"4px 8px",background:C.cardA,borderRadius:6,marginTop:4}}>{"📝 "+o.note}</div>}
+                {/* Quick status update */}
+                <div style={{display:"flex",gap:4,marginTop:6}}>
+                  {["ordered","onway","received"].map(st=>{const _sc=statusColors[st];return <button key={st} onClick={()=>upOrderStatus(selectedPid,o.id,st)} style={{flex:1,padding:"5px 4px",borderRadius:6,border:"1px solid "+(o.status===st?_sc.bdr:C.bdr),background:o.status===st?_sc.bg:"#fff",color:o.status===st?_sc.clr:C.txtM,fontSize:10,fontWeight:o.status===st?700:500,cursor:"pointer",fontFamily:"inherit"}}>{_sc.label}</button>;})}
+                </div>
+                <div style={{display:"flex",gap:4,marginTop:5}}>
+                  <button onClick={()=>{setForm({editOrderPid:selectedPid,editOrderOid:o.id,orderDesc:o.desc,orderSupplier:o.supplier,orderAmount:o.amount,orderStatus:o.status,orderNote:o.note});setModal("editOrder");}} style={{flex:1,padding:"5px",borderRadius:6,border:"1px solid "+C.blu,background:"#fff",color:C.blu,fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"✏️ ערוך"}</button>
+                  <button onClick={()=>confirmDel(o.desc||"הזמנה זו",()=>delOrder(selectedPid,o.id))} style={{flex:1,padding:"5px",borderRadius:6,border:"1px solid "+C.red,background:"#fff",color:C.red,fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"🗑 מחק"}</button>
+                </div>
+              </div>;
+            })}
+          </div>
+        </div></div>;
+      }
+
+      // ───── LIST VIEW (locations) ─────
+      // Group orders by location
+      const locations={};
+      Object.keys(data.projectOrders||{}).forEach(pid=>{
+        const orders=data.projectOrders[pid]||[];
+        if(orders.length===0)return;
+        const di=getDestInfo(pid,orders[0]);
+        const totalAmount=orders.reduce((s,o)=>s+(+o.amount||0),0);
+        const counts={ordered:0,onway:0,received:0};
+        orders.forEach(o=>{counts[o.status||"ordered"]=(counts[o.status||"ordered"]||0)+1;});
+        let lastDate="";
+        orders.forEach(o=>{if(o.date && o.date>lastDate)lastDate=o.date;});
+        locations[pid]={...di,pid,orderCount:orders.length,totalAmount,counts,lastDate};
       });
-      // Filter
-      let filtered=allOrders;
-      if(ordersFilter!=="all")filtered=filtered.filter(o=>o.status===ordersFilter);
+      // Filter by search
+      let locArr=Object.values(locations);
       if(ordersSearch.trim()){
         const q=ordersSearch.trim().toLowerCase();
-        filtered=filtered.filter(o=>(o.desc||"").toLowerCase().includes(q)||(o.supplier||"").toLowerCase().includes(q)||(o.projectName||"").toLowerCase().includes(q));
+        locArr=locArr.filter(loc=>(loc.name||loc.label).toLowerCase().includes(q));
       }
-      filtered.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-      const counts={all:allOrders.length,ordered:allOrders.filter(o=>o.status==="ordered").length,onway:allOrders.filter(o=>o.status==="onway").length,received:allOrders.filter(o=>o.status==="received").length};
-      const totalAmount=filtered.reduce((s,o)=>s+(+o.amount||0),0);
-      const filters=[{id:"all",label:"הכל",count:counts.all,color:C.txtM},{id:"ordered",label:"📞 הוזמן",count:counts.ordered,color:C.org},{id:"onway",label:"🚛 בדרך",count:counts.onway,color:C.blu},{id:"received",label:"✅ התקבל",count:counts.received,color:C.grn}];
+      // Sort by most recent
+      locArr.sort((a,b)=>(b.lastDate||"").localeCompare(a.lastDate||""));
+      const totalAllOrders=Object.values(data.projectOrders||{}).reduce((s,arr)=>s+arr.length,0);
+      const totalAllAmount=Object.values(data.projectOrders||{}).reduce((s,arr)=>s+arr.reduce((s2,o)=>s2+(+o.amount||0),0),0);
 
       return <div onClick={close} style={ov}><div onClick={e=>e.stopPropagation()} style={{...bx,maxWidth:560,width:"100%",padding:0,maxHeight:"92vh"}}>
         <div style={{background:C.org,color:"#fff",padding:"14px 18px",position:"sticky",top:0,borderRadius:"16px 16px 0 0",zIndex:10}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <button onClick={close} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",width:28,height:28,borderRadius:"50%",cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>{"×"}</button>
             <div style={{textAlign:"right"}}>
-              <div style={{fontSize:18,fontWeight:700}}>{"📦 כל ההזמנות"}</div>
-              <div style={{fontSize:11,opacity:0.85}}>{counts.all+" הזמנות · ₪"+totalAmount.toLocaleString()+" סה״כ מוצג"}</div>
+              <div style={{fontSize:18,fontWeight:700}}>{"📦 הזמנות לפי מקום"}</div>
+              <div style={{fontSize:11,opacity:0.85}}>{locArr.length+" מקומות · "+totalAllOrders+" הזמנות · ₪"+totalAllAmount.toLocaleString()}</div>
             </div>
           </div>
           {/* Search */}
-          <input value={ordersSearch} onChange={e=>setOrdersSearch(e.target.value)} placeholder={"🔍 חפש לפי פריט / ספק / פרויקט..."} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"none",fontSize:13,fontFamily:"inherit",direction:"rtl",outline:"none",boxSizing:"border-box",marginBottom:8}}/>
-          {/* Filter tabs */}
-          <div style={{display:"flex",gap:4,overflowX:"auto",paddingBottom:2}}>
-            {filters.map(f=><button key={f.id} onClick={()=>setOrdersFilter(f.id)} style={{flex:"0 0 auto",padding:"5px 10px",borderRadius:14,border:"none",background:ordersFilter===f.id?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.1)",color:"#fff",fontSize:11,fontWeight:ordersFilter===f.id?700:400,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{f.label+" ("+f.count+")"}</button>)}
-          </div>
+          <input value={ordersSearch} onChange={e=>setOrdersSearch(e.target.value)} placeholder={"🔍 חפש מקום..."} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"none",fontSize:13,fontFamily:"inherit",direction:"rtl",outline:"none",boxSizing:"border-box"}}/>
         </div>
 
-        <div style={{padding:"14px 16px",overflowY:"auto",maxHeight:"calc(92vh - 130px)"}}>
+        <div style={{padding:"14px 16px",overflowY:"auto",maxHeight:"calc(92vh - 110px)"}}>
           <button onClick={()=>{setForm({bulkSupplier:"",bulkStatus:"ordered",bulkDate:todayISO,bulkNote:"",bulkItems:[],bulkStep:1});setModal("addBulkOrder");}} style={{width:"100%",padding:12,borderRadius:10,border:"none",background:C.org,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>{"🛒 + הזמנה משולבת חדשה"}</button>
 
-          {filtered.length===0 && <div style={{textAlign:"center",color:C.txtL,padding:30,fontSize:13}}>{ordersSearch?"לא נמצאו תוצאות":"אין הזמנות"}</div>}
+          {locArr.length===0 && <div style={{textAlign:"center",color:C.txtL,padding:30,fontSize:13}}>{ordersSearch?"לא נמצאו תוצאות":"אין הזמנות עדיין"}</div>}
 
-          {filtered.map(o=>{
-            const statusColors={ordered:{bg:"#fff3cd",bdr:C.org,clr:C.org,label:"📞 הוזמן"},onway:{bg:C.bluB,bdr:C.blu,clr:C.blu,label:"🚛 בדרך"},received:{bg:C.grnP,bdr:C.grn,clr:C.grn,label:"✅ התקבל"}};
-            const sc=statusColors[o.status]||statusColors.ordered;
-            return <div key={o.id} style={{background:"#fff",borderRadius:10,border:"1px solid "+C.bdr,padding:12,marginBottom:8}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
-                <span style={{padding:"3px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:sc.bg,color:sc.clr,border:"1px solid "+sc.bdr}}>{sc.label}</span>
-                <div style={{textAlign:"right",flex:1,marginInlineStart:8}}>
-                  <div style={{fontSize:14,fontWeight:700,marginBottom:2}}>{o.desc}</div>
-                  <div style={{fontSize:11,color:o.projectColor||C.blu,fontWeight:600}}>{o.projectName}</div>
+          {locArr.map(loc=>{
+            const daysSince=loc.lastDate?Math.floor((new Date(todayISO)-new Date(loc.lastDate))/(1000*60*60*24)):null;
+            return <div key={loc.pid} onClick={()=>setForm({...form,ordersSelectedPid:loc.pid})} style={{background:"#fff",borderRadius:12,border:"2px solid "+loc.color,padding:14,marginBottom:10,cursor:"pointer"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <span style={{fontSize:18,color:loc.color}}>{"›"}</span>
+                <div style={{textAlign:"right",flex:1}}>
+                  <div style={{fontSize:15,fontWeight:700,color:loc.color}}>{loc.label}</div>
+                  {loc.lastDate && <div style={{fontSize:10,color:C.txtL,marginTop:2}}>{daysSince===0?"הזמנה אחרונה: היום":daysSince===1?"הזמנה אחרונה: אתמול":"הזמנה אחרונה: לפני "+daysSince+" ימים"}</div>}
                 </div>
               </div>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,color:C.txtM,marginTop:6,paddingTop:6,borderTop:"1px solid "+C.bdr}}>
-                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  {o.supplier && <span>{"🏪 "+o.supplier}</span>}
-                  {o.amount>0 && <span style={{fontWeight:700,color:C.txt}}>{"₪"+(+o.amount).toLocaleString()}</span>}
-                  {o.date && <span>{fmtFull(o.date)}</span>}
-                </div>
-              </div>
-              {o.note && <div style={{fontSize:11,color:C.txtM,padding:"6px 8px",background:C.cardA,borderRadius:6,marginTop:6}}>{"📝 "+o.note}</div>}
-              {/* Quick status update */}
-              <div style={{display:"flex",gap:4,marginTop:8}}>
-                {["ordered","onway","received"].map(st=>{const _sc=statusColors[st];return <button key={st} onClick={()=>upOrderStatus(o.projectId,o.id,st)} style={{flex:1,padding:"6px 4px",borderRadius:6,border:"1px solid "+(o.status===st?_sc.bdr:C.bdr),background:o.status===st?_sc.bg:"#fff",color:o.status===st?_sc.clr:C.txtM,fontSize:10,fontWeight:o.status===st?700:500,cursor:"pointer",fontFamily:"inherit"}}>{_sc.label}</button>;})}
-              </div>
-              <div style={{display:"flex",gap:4,marginTop:6}}>
-                <button onClick={()=>{setForm({editOrderPid:o.projectId,editOrderOid:o.id,orderDesc:o.desc,orderSupplier:o.supplier,orderAmount:o.amount,orderStatus:o.status,orderNote:o.note});setModal("editOrder");}} style={{flex:1,padding:"5px",borderRadius:6,border:"1px solid "+C.blu,background:"#fff",color:C.blu,fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"✏️ ערוך"}</button>
-                <button onClick={()=>{if(confirm("למחוק את ההזמנה?"))delOrder(o.projectId,o.id);}} style={{flex:1,padding:"5px",borderRadius:6,border:"1px solid "+C.red,background:"#fff",color:C.red,fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{"🗑 מחק"}</button>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",fontSize:11}}>
+                <span style={{padding:"3px 8px",borderRadius:10,background:loc.color+"22",color:loc.color,fontWeight:700}}>{loc.orderCount+" הזמנות"}</span>
+                {loc.totalAmount>0 && <span style={{padding:"3px 8px",borderRadius:10,background:C.cardA,color:C.txt,fontWeight:700}}>{"₪"+loc.totalAmount.toLocaleString()}</span>}
+                {loc.counts.ordered>0 && <span style={{padding:"3px 8px",borderRadius:10,background:"#fff3cd",color:C.org,fontWeight:600}}>{"📞 "+loc.counts.ordered}</span>}
+                {loc.counts.onway>0 && <span style={{padding:"3px 8px",borderRadius:10,background:C.bluB,color:C.blu,fontWeight:600}}>{"🚛 "+loc.counts.onway}</span>}
+                {loc.counts.received>0 && <span style={{padding:"3px 8px",borderRadius:10,background:C.grnP,color:C.grn,fontWeight:600}}>{"✅ "+loc.counts.received}</span>}
               </div>
             </div>;
           })}
@@ -2265,7 +2530,7 @@ function App(){
             </div>
             {nextNotes.length===0 && <div style={{textAlign:"center",color:C.txtL,padding:20}}>{"אין הערות"}</div>}
             {nextNotes.map(n=><div key={n.id} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:n.done?C.grnP:C.purpB,marginBottom:6,border:"1px solid "+(n.done?C.grnL:C.purp)}}>
-              <span onClick={()=>delNextVisit(site.id,n.id)} style={{fontSize:14,color:C.red,cursor:"pointer"}}>🗑</span>
+              <span onClick={()=>confirmDel(n.text||"הערה",()=>delNextVisit(site.id,n.id))} style={{fontSize:14,color:C.red,cursor:"pointer"}}>🗑</span>
               <span onClick={()=>togNextVisit(site.id,n.id)} style={{fontSize:22,cursor:"pointer"}}>{n.done?"✅":"⬜"}</span>
               <div style={{flex:1,textAlign:"right"}}>
                 <div style={{fontSize:14,fontWeight:500,textDecoration:n.done?"line-through":"none"}}>{n.text}</div>
@@ -2281,7 +2546,7 @@ function App(){
             {siteTasks.map(t=><div key={t.id} style={{padding:"10px 12px",borderRadius:8,background:t.status==="done"?C.grnP:C.cardA,marginBottom:6,border:"1px solid "+(t.status==="done"?C.grnL:C.bdr)}}>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <span onClick={()=>togTask(t.date,t.id)} style={{fontSize:22,cursor:"pointer"}}>{t.status==="done"?"✅":"⬜"}</span>
-                <span onClick={()=>delTask(t.date,t.id)} style={{fontSize:12,color:C.red,cursor:"pointer"}}>🗑</span>
+                <span onClick={()=>confirmDel(t.notes||"משימה זו",()=>delTask(t.date,t.id))} style={{fontSize:12,color:C.red,cursor:"pointer"}}>🗑</span>
                 <div style={{flex:1,textAlign:"right",fontSize:13}}>
                   <div style={{fontWeight:500,textDecoration:t.status==="done"?"line-through":"none"}}>{t.notes}</div>
                   <div style={{fontSize:10,color:C.txtM}}>{fmtFull(t.date)}</div>
@@ -2325,7 +2590,7 @@ function App(){
                   {o.status!=="ordered" && <button onClick={()=>upOrderStatus(site.id,o.id,"ordered")} style={{flex:1,padding:5,borderRadius:6,border:"1px solid "+C.bdr,background:"#fff",fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>{"📞 הוזמן"}</button>}
                   {o.status!=="onway" && <button onClick={()=>upOrderStatus(site.id,o.id,"onway")} style={{flex:1,padding:5,borderRadius:6,border:"1px solid "+C.bdr,background:"#fff",fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>{"🚛 בדרך"}</button>}
                   {o.status!=="received" && <button onClick={()=>upOrderStatus(site.id,o.id,"received")} style={{flex:1,padding:5,borderRadius:6,border:"1px solid "+C.grn,background:C.grnP,color:C.grn,fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>{"✅ התקבל"}</button>}
-                  <button onClick={()=>delOrder(site.id,o.id)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid "+C.red,background:"#fff",color:C.red,fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>{"🗑"}</button>
+                  <button onClick={()=>confirmDel("הזמנה זו",()=>delOrder(site.id,o.id))} style={{padding:"5px 8px",borderRadius:6,border:"1px solid "+C.red,background:"#fff",color:C.red,fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>{"🗑"}</button>
                 </div>
               </div>;
             })}
@@ -2357,7 +2622,7 @@ function App(){
                 <div style={{fontSize:10,color:C.txtM,marginTop:2}}>{fmtFull(e.date)}</div>
                 <div style={{display:"flex",gap:4,marginTop:6}}>
                   <button onClick={()=>togExtraInvoiced(e.id)} style={{flex:1,padding:5,borderRadius:6,border:"none",background:e.invoiced?C.cardA:C.org,color:e.invoiced?C.txt:"#fff",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>{e.invoiced?"בטל חיוב":"סמן חויב ✓"}</button>
-                  <button onClick={()=>delExtra(e.id)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid "+C.red,background:"#fff",color:C.red,fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>{"🗑"}</button>
+                  <button onClick={()=>confirmDel(e.desc||"תוספת",()=>delExtra(e.id))} style={{padding:"5px 8px",borderRadius:6,border:"1px solid "+C.red,background:"#fff",color:C.red,fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>{"🗑"}</button>
                 </div>
               </div>)}
             </div>}
