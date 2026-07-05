@@ -1610,6 +1610,16 @@ function App(){
 
   // SETTINGS
   const settingsView=<div style={{padding:16}}>
+    {/* Check-in links */}
+    <div style={{background:"#fff",borderRadius:14,border:"2px solid "+C.grn,padding:16,marginBottom:12}}>
+      <div style={{fontSize:15,fontWeight:700,textAlign:"center",marginBottom:6,color:C.grn}}>{"📲 צ'ק-אין עובדים"}</div>
+      <div style={{fontSize:11,color:C.txtM,textAlign:"center",marginBottom:12}}>{"שלח לעובדים לרישום הגעה/יציאה עם מיקום"}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:7}}>
+        <button onClick={()=>{const u="https://noambengigi-stack.github.io/garden-tracker/?checkin";navigator.clipboard.writeText(u).then(()=>alert("✅ הלינק לעובדים הועתק!\nאפשר להדביק בוואטסאפ.")).catch(()=>prompt("העתק את הלינק לעובדים:",u));}} style={{width:"100%",padding:"12px",borderRadius:10,border:"none",background:C.grn,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"center"}}>{"📋 העתק לינק לעובדים (לוואטסאפ)"}</button>
+        <button onClick={()=>{const u="https://noambengigi-stack.github.io/garden-tracker/?checkins";navigator.clipboard.writeText(u).then(()=>alert("✅ לינק הצפייה הועתק! (סיסמה 1234)")).catch(()=>prompt("העתק את לינק הצפייה (סיסמה 1234):",u));}} style={{width:"100%",padding:"12px",borderRadius:10,border:"1.5px solid "+C.bdr,background:"#fff",color:C.txt,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textAlign:"center"}}>{"📋 העתק לינק צפייה שלי (סיסמה 1234)"}</button>
+      </div>
+    </div>
+
     {/* Reports & Analytics */}
     <div style={{background:"#fff",borderRadius:14,border:"2px solid "+C.org,padding:16,marginBottom:12}}>
       <div style={{fontSize:15,fontWeight:700,textAlign:"center",marginBottom:6,color:C.org}}>{"📊 דוחות וניתוחים"}</div>
@@ -5992,8 +6002,160 @@ function App(){
   </div>);
 }
 
+/* ═══════════ צ'ק-אין עובדים (מיקום הגעה/יציאה) ═══════════ */
+const CI_G={grn:"#2d6a4f",grnD:"#1b4332",red:"#c0392b",bg:"#f5f0e6",card:"#ffffff",txt:"#2d3a2e",muted:"#7a8a7e",bdr:"#dcd6c8"};
+const ciT=(iso)=>{try{return new Date(iso).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"});}catch(_){return"";}};
+const ciD=(iso)=>{try{return new Date(iso).toLocaleDateString("he-IL",{day:"2-digit",month:"2-digit",year:"numeric"});}catch(_){return"";}};
+
+function CheckIn(){
+  const [workers,setWorkers]=useState([]);
+  const [name,setName]=useState("");
+  const [typed,setTyped]=useState("");
+  const [status,setStatus]=useState("");
+  const [done,setDone]=useState(null);
+  const [err,setErr]=useState("");
+  const [pending,setPending]=useState(null);
+  useEffect(()=>{(async()=>{try{const {data}=await sb.from("app_data").select("data").eq("id","main").maybeSingle();const ws=(data&&data.data&&data.data.workers)||[];setWorkers(ws.filter(w=>w.type!=="sub").map(w=>w.name));}catch(_){}})();},[]);
+  const chosen=(typed.trim()||name).trim();
+  async function saveRecord(type,coords){
+    setStatus("saving");
+    const rec={id:Math.random().toString(36).slice(2,9),worker:chosen,type:type,ts:new Date().toISOString(),lat:coords?coords.latitude:null,lng:coords?coords.longitude:null,acc:coords?Math.round(coords.accuracy):null};
+    try{
+      const {data}=await sb.from("app_data").select("data").eq("id","checkins").maybeSingle();
+      const list=(data&&data.data&&data.data.list)||[];
+      list.push(rec);
+      const {error}=await sb.from("app_data").upsert({id:"checkins",data:{list:list},updated_at:new Date().toISOString()});
+      if(error)throw error;
+      setDone(rec);setStatus("");setErr("");setPending(null);
+    }catch(e){setStatus("");setErr("שגיאת שמירה — נסה שוב");}
+  }
+  function press(type){
+    setErr("");setPending(null);
+    if(!chosen){setErr("בחר או הקלד שם");return;}
+    if(!navigator.geolocation){setPending(type);setErr("אין גישה למיקום במכשיר");return;}
+    setStatus("locating");
+    navigator.geolocation.getCurrentPosition(
+      (pos)=>saveRecord(type,pos.coords),
+      (e)=>{setStatus("");setPending(type);setErr(e.code===1?"המיקום חסום. אפשר להפעיל מיקום בהגדרות — או לשמור בלי מיקום.":"לא הצלחתי לאתר מיקום. נסה שוב או שמור בלי מיקום.");},
+      {enableHighAccuracy:true,timeout:15000,maximumAge:0}
+    );
+  }
+  const wrap={minHeight:"100vh",background:CI_G.bg,fontFamily:"'Rubik',sans-serif",direction:"rtl",color:CI_G.txt,maxWidth:480,margin:"0 auto",padding:"0 0 40px",boxShadow:"0 0 40px rgba(0,0,0,0.08)"};
+  const head={background:CI_G.grn,color:"#fff",padding:"22px 18px",textAlign:"center"};
+  if(done){
+    const inn=done.type==="in";
+    return (
+      <div style={wrap}>
+        <div style={head}><div style={{fontSize:18,fontWeight:700}}>🌿 מעקב גינון</div></div>
+        <div style={{padding:"28px 18px",textAlign:"center"}}>
+          <div style={{fontSize:54,marginBottom:10}}>✅</div>
+          <div style={{fontSize:22,fontWeight:700,color:inn?CI_G.grn:CI_G.red,marginBottom:6}}>{inn?"הגעה נרשמה":"יציאה נרשמה"}</div>
+          <div style={{fontSize:34,fontWeight:700,marginBottom:4}}>{ciT(done.ts)}</div>
+          <div style={{fontSize:16,color:CI_G.muted,marginBottom:20}}>{done.worker}</div>
+          {done.lat!=null
+            ? <a href={"https://www.google.com/maps?q="+done.lat+","+done.lng} target="_blank" rel="noopener" style={{display:"inline-block",padding:"12px 20px",borderRadius:12,background:CI_G.card,border:"1.5px solid "+CI_G.bdr,color:CI_G.grn,fontWeight:700,textDecoration:"none",marginBottom:8}}>📍 פתח מיקום במפה</a>
+            : <div style={{fontSize:13,color:CI_G.muted,marginBottom:8}}>נשמר בלי מיקום</div>}
+          <div style={{marginTop:22}}>
+            <button onClick={()=>{setDone(null);setName("");setTyped("");}} style={{padding:"12px 22px",borderRadius:12,border:"1.5px solid "+CI_G.bdr,background:CI_G.card,color:CI_G.txt,fontSize:15,fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>רישום נוסף</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  const busy=status==="locating"||status==="saving";
+  const bigBtn=(bg)=>({width:"100%",padding:"22px",borderRadius:16,border:"none",color:"#fff",background:bg,fontSize:24,fontWeight:700,fontFamily:"inherit",cursor:busy?"default":"pointer",opacity:busy?0.6:1,marginBottom:14,boxShadow:"0 4px 14px rgba(0,0,0,0.12)"});
+  return (
+    <div style={wrap}>
+      <div style={head}>
+        <div style={{fontSize:18,fontWeight:700,marginBottom:2}}>🌿 מעקב גינון</div>
+        <div style={{fontSize:13,opacity:0.9}}>רישום הגעה ויציאה</div>
+      </div>
+      <div style={{padding:"18px"}}>
+        <div style={{fontSize:15,fontWeight:700,marginBottom:10}}>מי אתה?</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
+          {workers.map(w=>(
+            <button key={w} onClick={()=>{setName(w);setTyped("");setErr("");}} style={{padding:"10px 16px",borderRadius:20,border:"1.5px solid "+((name===w&&!typed.trim())?CI_G.grn:CI_G.bdr),background:(name===w&&!typed.trim())?CI_G.grn:CI_G.card,color:(name===w&&!typed.trim())?"#fff":CI_G.txt,fontSize:15,fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>{w}</button>
+          ))}
+        </div>
+        <input value={typed} onChange={e=>{setTyped(e.target.value);setErr("");}} placeholder="או הקלד שם אחר..." style={{width:"100%",padding:12,borderRadius:10,border:"1.5px solid "+CI_G.bdr,fontSize:15,fontFamily:"inherit",direction:"rtl",outline:"none",marginBottom:18,boxSizing:"border-box"}}/>
+        <button onClick={()=>press("in")} disabled={busy} style={bigBtn(CI_G.grn)}>🟢 הגעתי</button>
+        <button onClick={()=>press("out")} disabled={busy} style={bigBtn(CI_G.red)}>🔴 סיימתי</button>
+        {status==="locating"&&<div style={{textAlign:"center",color:CI_G.muted,fontSize:14,marginTop:6}}>📍 מאתר מיקום...</div>}
+        {status==="saving"&&<div style={{textAlign:"center",color:CI_G.muted,fontSize:14,marginTop:6}}>שומר...</div>}
+        {err&&<div style={{textAlign:"center",color:CI_G.red,fontSize:14,marginTop:10}}>{err}</div>}
+        {pending&&<button onClick={()=>saveRecord(pending,null)} style={{width:"100%",marginTop:12,padding:14,borderRadius:12,border:"1.5px dashed "+CI_G.bdr,background:CI_G.card,color:CI_G.txt,fontSize:15,fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>שמור בכל זאת (בלי מיקום)</button>}
+        <div style={{textAlign:"center",fontSize:12,color:CI_G.muted,marginTop:22}}>כשהדפדפן מבקש — אשרו גישה למיקום 📍</div>
+      </div>
+    </div>
+  );
+}
+
+function CheckinsAdmin(){
+  const [ok,setOk]=useState(false);
+  const [pw,setPw]=useState("");
+  const [pwErr,setPwErr]=useState(false);
+  const [list,setList]=useState(null);
+  const [loading,setLoading]=useState(false);
+  async function refresh(){
+    setLoading(true);
+    try{const {data}=await sb.from("app_data").select("data").eq("id","checkins").maybeSingle();
+      const l=((data&&data.data&&data.data.list)||[]).slice().sort((a,b)=>(b.ts||"").localeCompare(a.ts||""));
+      setList(l);}catch(_){setList([]);}
+    setLoading(false);
+  }
+  useEffect(()=>{if(ok){refresh();const t=setInterval(refresh,15000);return ()=>clearInterval(t);}},[ok]);
+  const wrap={minHeight:"100vh",background:CI_G.bg,fontFamily:"'Rubik',sans-serif",direction:"rtl",color:CI_G.txt,maxWidth:480,margin:"0 auto",boxShadow:"0 0 40px rgba(0,0,0,0.08)"};
+  if(!ok){
+    return (
+      <div style={{...wrap,padding:"60px 24px"}}>
+        <div style={{fontSize:20,fontWeight:700,textAlign:"center",marginBottom:16}}>📍 צ'ק-אין עובדים</div>
+        <input type="password" value={pw} onChange={e=>{setPw(e.target.value);setPwErr(false);}} onKeyDown={e=>e.key==="Enter"&&(pw===PW?setOk(true):setPwErr(true))} placeholder="סיסמה" style={{width:"100%",padding:14,borderRadius:10,border:"2px solid "+(pwErr?CI_G.red:CI_G.bdr),fontSize:20,textAlign:"center",letterSpacing:6,fontFamily:"inherit",outline:"none",boxSizing:"border-box",marginBottom:12}}/>
+        <button onClick={()=>pw===PW?setOk(true):setPwErr(true)} style={{width:"100%",padding:14,borderRadius:10,border:"none",background:CI_G.grn,color:"#fff",fontSize:16,fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>כניסה</button>
+      </div>
+    );
+  }
+  const groups={};
+  (list||[]).forEach(r=>{const k=ciD(r.ts);(groups[k]=groups[k]||[]).push(r);});
+  const days=Object.keys(groups);
+  return (
+    <div style={wrap}>
+      <div style={{background:CI_G.grn,color:"#fff",padding:"18px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:17,fontWeight:700}}>📍 צ'ק-אין עובדים</div>
+        <button onClick={refresh} style={{padding:"7px 14px",borderRadius:10,border:"none",background:"rgba(255,255,255,0.2)",color:"#fff",fontSize:13,fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>{loading?"...":"רענן"}</button>
+      </div>
+      <div style={{padding:"14px"}}>
+        {list&&list.length===0&&<div style={{textAlign:"center",color:CI_G.muted,padding:"40px 0"}}>אין רישומים עדיין</div>}
+        {days.map(day=>(
+          <div key={day} style={{marginBottom:16}}>
+            <div style={{fontSize:13,fontWeight:700,color:CI_G.muted,margin:"6px 2px"}}>{day}</div>
+            {groups[day].map(r=>{const inn=r.type==="in";return (
+              <div key={r.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:CI_G.card,border:"1px solid "+CI_G.bdr,borderRadius:12,padding:"10px 12px",marginBottom:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{padding:"3px 10px",borderRadius:10,fontSize:12,fontWeight:700,background:inn?"#e3f0e8":"#f7e3e0",color:inn?CI_G.grn:CI_G.red}}>{inn?"הגעה":"יציאה"}</span>
+                  <span style={{fontWeight:700,fontSize:15}}>{r.worker}</span>
+                  {r.acc!=null&&<span style={{fontSize:11,color:CI_G.muted}}>{"±"+r.acc+"מ׳"}</span>}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:16,fontWeight:700}}>{ciT(r.ts)}</span>
+                  {r.lat!=null
+                    ? <a href={"https://www.google.com/maps?q="+r.lat+","+r.lng} target="_blank" rel="noopener" style={{textDecoration:"none",fontSize:18}}>🗺️</a>
+                    : <span style={{fontSize:12,color:CI_G.muted}}>—</span>}
+                </div>
+              </div>
+            );})}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+/* ═══════════ end צ'ק-אין ═══════════ */
+
+const CI_Q=new URLSearchParams(location.search);
 const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(React.createElement(App));
+if(CI_Q.has("checkin")){ root.render(React.createElement(CheckIn)); }
+else if(CI_Q.has("checkins")){ root.render(React.createElement(CheckinsAdmin)); }
+else { root.render(React.createElement(App)); }
 </script>
 </body>
 </html>
